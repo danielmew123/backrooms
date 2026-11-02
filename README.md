@@ -1,10 +1,18 @@
 # Backrooms
 
-An endless, procedurally generated Backrooms (Level 0) you walk around in, with a VHS /
-found-footage camcorder look. Everything — the maze, textures, lighting and the VHS filter —
-is generated in code; no downloaded assets except the three.js engine and a pixel font.
+An endless, procedurally generated Backrooms you walk around in. Four levels — Level 0 (yellow
+rooms), the Poolrooms, Level 2 "Pipe Dreams", and Level 7 "Thalassophobia" (the ocean). Everything
+is generated in code; the only external assets are the three.js engine (CDN) and a pixel font.
 
-## Open it
+## Play in your browser / VR headset
+Hosted here: **https://danielmew123.github.io/backrooms/**
+
+**In VR (Quest etc.):** open that link in the headset browser and tap **ENTER VR**.
+- Left thumbstick = walk (where you look) · Right thumbstick = turn · move your head to look around.
+- No keyboard in VR, so pick a level with a URL param: add `?level=pool`, `?level=level2` or
+  `?level=level7` (default is Level 0), e.g. `.../backrooms/?level=level7`.
+
+## Open it locally (desktop)
 Double-click **`start.command`** (or run `~/backrooms-cam/start.command` in Terminal).
 It starts a local server and opens a 1280×720 Chrome window titled "Backrooms".
 It opens straight into first-person with no overlay. Click the window to take control.
