@@ -440,6 +440,7 @@ function setLevel(name) {
     for (const [, g] of chunks) { scene.remove(g); g.traverse(o => o.geometry && o.geometry.dispose()); }
     chunks.clear(); cellCache.clear();
   }
+  if (typeof player !== 'undefined') { player.pos.set(CELL / 2, 0, CELL / 2); player.vel.set(0, 0, 0); } // drop at the room's always-clear spawn so you never land inside a wall after switching rooms
 }
 
 // ---------- level generation ----------
