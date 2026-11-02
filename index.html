@@ -306,6 +306,7 @@ const camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.05, 120);
 camera.rotation.order = 'YXZ';
 // VR rig: in XR the headset drives the camera, so we move this dolly for locomotion and let XR pose the camera.
 const dolly = new THREE.Group(); dolly.add(camera); scene.add(dolly);
+let yPrev = false;   // edge-detect the VR Y button (cycle rooms)
 renderer.xr.addEventListener('sessionstart', () => { help.classList.add('hidden'); mode = 'fp'; });
 renderer.xr.addEventListener('sessionend', () => { dolly.position.set(0, 0, 0); dolly.rotation.set(0, 0, 0); });
 
@@ -1050,15 +1051,18 @@ function frame(now) {
   if (keys.has('KeyS')) wish.sub(fwd);
   if (keys.has('KeyD')) wish.add(right);
   if (keys.has('KeyA')) wish.sub(right);
-  if (xr) {  // VR: left thumbstick walks (in the direction you're looking), right thumbstick turns
-    const sess = renderer.xr.getSession(); let mx = 0, my = 0, tx = 0;
+  if (xr) {  // VR: left stick walks (where you look), right stick turns, Y (left controller) cycles rooms
+    const sess = renderer.xr.getSession(); let mx = 0, my = 0, tx = 0, yNow = false;
     if (sess) for (const src of sess.inputSources) {
-      const gp = src.gamepad; if (!gp || !gp.axes) continue;
-      const a = gp.axes, ax = a.length > 2 ? a[2] : (a[0] || 0), ay = a.length > 3 ? a[3] : (a[1] || 0);
+      const gp = src.gamepad; if (!gp) continue;
+      const a = gp.axes || [], ax = a.length > 2 ? a[2] : (a[0] || 0), ay = a.length > 3 ? a[3] : (a[1] || 0);
       if (src.handedness === 'right') tx += ax; else { mx += ax; my += ay; }
+      if (src.handedness === 'left' && gp.buttons && gp.buttons[5] && gp.buttons[5].pressed) yNow = true; // Y button
     }
-    if (Math.abs(tx) > 0.2) dolly.rotation.y -= tx * 2.0 * dt;
-    if (Math.hypot(mx, my) > 0.15) { const cd = new THREE.Vector3(); camera.getWorldDirection(cd); cd.y = 0; cd.normalize(); const cr = new THREE.Vector3(cd.z, 0, -cd.x); wish.addScaledVector(cd, -my).addScaledVector(cr, mx); }
+    if (yNow && !yPrev) { setLevel(LEVEL_ORDER[(LEVEL_ORDER.indexOf(currentLevel) + 1) % LEVEL_ORDER.length]); toast(LV.name); }
+    yPrev = yNow;
+    if (Math.abs(tx) > 0.2) dolly.rotation.y -= tx * 1.6 * dt;   // smooth turn (gentler)
+    if (Math.hypot(mx, my) > 0.15) { const cd = new THREE.Vector3(); camera.getWorldDirection(cd); cd.y = 0; cd.normalize(); const cr = new THREE.Vector3(-cd.z, 0, cd.x); wish.addScaledVector(cd, -my).addScaledVector(cr, mx); }
   }
   const running = keys.has('ShiftLeft') || keys.has('ShiftRight');
   if (wish.lengthSq() > 0) wish.normalize().multiplyScalar(running ? 4.6 : 2.2);
