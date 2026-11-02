@@ -290,6 +290,10 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;   // filmic highlight rollof
 renderer.toneMappingExposure = 1.15;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;  // soft shadows (used on Level 7)
 renderer.xr.enabled = true;                              // WebXR (VR headsets)
+// VR performance is fill-rate bound, NOT geometry (draw calls are only ~40-70). setPixelRatio does
+// nothing in VR — the headset renders into its own XR framebuffer. These two are the real VR levers:
+renderer.xr.setFramebufferScaleFactor(0.8);              // render each eye at 80% res — ~36% fewer fragments, the biggest VR win
+renderer.xr.setFoveation(1);                             // max fixed-foveated rendering: periphery drawn at lower res (cheap), center stays sharp
 document.body.prepend(renderer.domElement);
 document.body.appendChild(VRButton.createButton(renderer));  // "ENTER VR" button (shows on headsets / WebXR browsers)
 
