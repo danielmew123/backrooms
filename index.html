@@ -1,0 +1,1225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Backrooms</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0a0a; overflow: hidden; cursor: default; }
+  canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; }
+  .hud { position: fixed; inset: 0; pointer-events: none; font-family: 'VT323', ui-monospace, Menlo, monospace;
+         color: #f2f2f2; text-shadow: 2px 0 rgba(255,0,60,.55), -2px 0 rgba(0,200,255,.45), 0 0 6px rgba(255,255,255,.35);
+         font-size: clamp(18px, 3.2vh, 40px); letter-spacing: .06em; }
+  .hud.hidden { display: none; }
+  #rec { position: absolute; top: 4.5vh; left: 4vw; }
+  #rec .dot { color: #ff2a2a; }
+  #batt { position: absolute; top: 4.5vh; right: 4vw; display: flex; align-items: center; gap: .4em; }
+  #batt .cell { width: 2.2em; height: .9em; border: 2px solid #f2f2f2; position: relative; }
+  #batt .cell::after { content: ""; position: absolute; right: -6px; top: 25%; width: 4px; height: 50%; background: #f2f2f2; }
+  #batt .lvl { position: absolute; inset: 2px; right: 55%; background: #f2f2f2; }
+  #mode { position: absolute; top: 10vh; left: 4vw; font-size: .7em; opacity: .8; }
+  #stamp { position: absolute; bottom: 5vh; left: 4vw; }
+  #counter { position: absolute; bottom: 5vh; right: 4vw; }
+  #help { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); background: rgba(10,8,2,.88);
+          color: #e9dca0; border: 1px solid #6b5d2a; padding: 22px 28px; font: 15px/1.55 ui-monospace, Menlo, monospace;
+          border-radius: 6px; min-width: 340px; }
+  #help h1 { margin: 0 0 10px; font: 30px 'VT323', monospace; color: #fff3b0; letter-spacing: .08em; }
+  #help kbd { display: inline-block; min-width: 1.6em; text-align: center; background: #2a2410; border: 1px solid #6b5d2a;
+              border-radius: 3px; padding: 0 5px; margin-right: 6px; color: #fff; }
+  #help .start { margin-top: 12px; color: #fff; text-align: center; animation: blink 1.2s steps(2) infinite; }
+  #help.hidden { display: none; }
+  #toast { position: fixed; left: 50%; bottom: 14vh; transform: translateX(-50%); font: 16px ui-monospace, Menlo, monospace;
+           color: #fff; background: rgba(0,0,0,.6); padding: 6px 12px; border-radius: 4px; opacity: 0; transition: opacity .3s; }
+  /* filmed-off-a-screen: pull the overlay in from the edges a phone crops, and bump its size */
+  body.screenfit #rec, body.screenfit #batt { top: 8vh; }
+  body.screenfit #mode { top: 15vh; }
+  body.screenfit #rec, body.screenfit #mode { left: 9vw; }
+  body.screenfit #batt { right: 9vw; }
+  body.screenfit #stamp { bottom: 9vh; left: 9vw; }
+  body.screenfit #counter { bottom: 9vh; right: 9vw; }
+  body.screenfit .hud { font-size: clamp(22px, 4vh, 48px); }
+  @keyframes blink { 50% { opacity: 0; } }
+  .blink { animation: blink 1s steps(2) infinite; }
+</style>
+<script type="importmap">{ "imports": {
+  "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+} }</script>
+</head>
+<body>
+<div class="hud" id="hud">
+  <div id="rec"><span class="dot blink">●</span> REC</div>
+  <div id="batt"><div class="cell"><div class="lvl"></div></div></div>
+  <div id="mode"></div>
+  <div id="stamp"></div>
+  <div id="counter"></div>
+</div>
+<div id="help">
+  <h1>LEVEL 0</h1>
+  <div><kbd>W A S D</kbd>walk &nbsp; <kbd>Shift</kbd>run</div>
+  <div><kbd>Mouse</kbd>look &nbsp; (or <kbd>←</kbd><kbd>→</kbd> turn)</div>
+  <div><kbd>C</kbd>camera: 3rd person → selfie → 1st person</div>
+  <div><kbd>F</kbd>put your webcam face on the character</div>
+  <div><kbd>E</kbd>spawn / remove the entity</div>
+  <div><kbd>Q</kbd>lights fail &nbsp; <kbd>P</kbd>cycle level: Level 0 → Poolrooms → Pipe Dreams → Thalassophobia</div>
+  <div><kbd>M</kbd>fluorescent hum (your speakers only)</div>
+  <div><kbd>V</kbd>VHS effect on/off &nbsp; <kbd>U</kbd>hide overlay</div>
+  <div><kbd>G</kbd>screen-film mode (brighter, no dark edges — for filming off your monitor)</div>
+  <div><kbd>H</kbd>show/hide this help &nbsp; <kbd>Esc</kbd>free mouse</div>
+  <div class="start">click to enter</div>
+</div>
+<div id="toast"></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { Water } from 'three/addons/objects/Water.js'; // three.js's reflective water
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'; // procedural env for realistic PBR reflections
+import { Sky } from 'three/addons/objects/Sky.js'; // atmospheric sky for the Level 7 ocean
+import { VRButton } from 'three/addons/webxr/VRButton.js'; // WebXR "Enter VR" button for Quest etc.
+
+const params = new URLSearchParams(location.search);
+const CELL = 5, WALL_H = 3, CHUNK = 6, VIEW_CHUNKS = 2;
+const SEED = (parseInt(params.get('seed') || '1337', 10)) | 0;
+
+// ---------- deterministic hash ----------
+function hash(i, j, k) {
+  let h = Math.imul(i, 374761393) ^ Math.imul(j, 668265263) ^ Math.imul(k, 1103515245) ^ Math.imul(SEED, 1442695041);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+// ---------- procedural textures ----------
+function canvasTex(w, h, draw, repeat = true) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 8;
+  return t;
+}
+function speckle(g, w, h, n, alpha, light) {
+  for (let i = 0; i < n; i++) {
+    const v = light ? 255 : 0;
+    g.fillStyle = `rgba(${v},${v},${v},${Math.random() * alpha})`;
+    g.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 2, 1 + Math.random() * 2);
+  }
+}
+const wallTex = canvasTex(512, 768, (g, w, h) => {
+  g.fillStyle = '#cdc07a'; g.fillRect(0, 0, w, h);   // muted dirty yellow (the real Level 0 photo — yellowish, not neon, not washed-white)
+  // vertical stripes
+  for (let x = 0; x < w; x += 32) { g.fillStyle = 'rgba(120,114,64,.09)'; g.fillRect(x, 0, 12, h); }
+  // little chevron/diamond motif
+  g.strokeStyle = 'rgba(118,110,62,.20)'; g.lineWidth = 3;
+  for (let y = 0; y < h; y += 48) for (let x = 16; x < w; x += 64) {
+    const o = (y / 48) % 2 ? 32 : 0;
+    g.beginPath(); g.moveTo(x + o - 7, y + 8); g.lineTo(x + o, y); g.lineTo(x + o + 7, y + 8); g.stroke();
+  }
+  speckle(g, w, h, 9000, .06, false); speckle(g, w, h, 4000, .05, true);
+  // water stains / grime toward bottom
+  for (let i = 0; i < 26; i++) {
+    const x = Math.random() * w, y = h * (.55 + Math.random() * .4), r = 20 + Math.random() * 90;
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, 'rgba(95,75,25,.20)'); gr.addColorStop(1, 'rgba(95,75,25,0)');
+    g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  const grime = g.createLinearGradient(0, h * .75, 0, h);
+  grime.addColorStop(0, 'rgba(70,55,20,0)'); grime.addColorStop(1, 'rgba(70,55,20,.35)');
+  g.fillStyle = grime; g.fillRect(0, 0, w, h);
+  // baseboard (texture v=0 is the bottom of the wall -> bottom of canvas)
+  g.fillStyle = '#9a9062'; g.fillRect(0, h - 26, w, 26);
+  g.fillStyle = 'rgba(255,248,210,.2)'; g.fillRect(0, h - 26, w, 3);
+  // ceiling shadow line
+  g.fillStyle = 'rgba(60,45,10,.25)'; g.fillRect(0, 0, w, 6);
+});
+const carpetTex = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#a89b73'; g.fillRect(0, 0, w, h);   // muted tan-beige carpet (not yellow), like the reference photo
+  for (let i = 0; i < 90000; i++) {
+    const s = Math.random();
+    g.fillStyle = s < .5 ? `rgba(80,72,52,${Math.random() * .22})` : `rgba(205,196,168,${Math.random() * .18})`;
+    g.fillRect(Math.random() * w, Math.random() * h, 1.5, 1.5);
+  }
+  for (let i = 0; i < 3; i++) { // damp patches (kept subtle so they don't form a visible per-tile grid)
+    const x = Math.random() * w, y = Math.random() * h, r = 40 + Math.random() * 90;
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, 'rgba(55,42,15,.07)'); gr.addColorStop(1, 'rgba(55,42,15,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  }
+});
+// ceiling: a plain painted ceiling with one thin surface-mounted fluorescent tube per cell (like the real photo)
+const ceilTex = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#d6d0b2'; g.fillRect(0, 0, w, h);   // plain pale painted ceiling
+  speckle(g, w, h, 8000, .05, false);
+  g.strokeStyle = 'rgba(120,112,78,.16)'; g.lineWidth = 2;   // faint seams only (not a dense tile grid)
+  for (let i = 0; i <= 2; i++) { g.beginPath(); g.moveTo(i * 256, 0); g.lineTo(i * 256, h); g.stroke(); g.beginPath(); g.moveTo(0, i * 256); g.lineTo(w, i * 256); g.stroke(); }
+  for (let i = 0; i < 5; i++) { // faint stains
+    const x = Math.random() * w, y = Math.random() * h, r = 15 + Math.random() * 45;
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, 'rgba(120,110,70,.22)'); gr.addColorStop(1, 'rgba(120,110,70,0)');
+    g.fillStyle = gr; g.fillRect(x - r, y - r, 2 * r, 2 * r);
+  }
+  // (no baked light strip — Level 0's fluorescent fixtures are now sparse, separate lit meshes)
+});
+const ceilEmit = canvasTex(512, 512, (g, w, h) => { g.fillStyle = '#000'; g.fillRect(0, 0, w, h); });
+
+// ---------- Poolrooms (Level 37) textures ----------
+// small CREAM wall/floor/column tiles (the deck, columns and walls are all this)
+function tileDraw(baseR, baseG, baseB, groutA, N, caustics) {
+  return (g, w, h) => {
+    g.fillStyle = `rgb(${baseR},${baseG},${baseB})`; g.fillRect(0, 0, w, h);
+    const s = w / N;
+    for (let x = 0; x < N; x++) for (let y = 0; y < N; y++) {       // very faint per-tile shade variation (clean tiles)
+      const v = (Math.random() - 0.5) * 5;
+      g.fillStyle = `rgba(${baseR + v},${baseG + v},${baseB + v},0.4)`; g.fillRect(x * s, y * s, s, s);
+    }
+    g.strokeStyle = `rgba(${baseR - 55},${baseG - 52},${baseB - 48},0.85)`; g.lineWidth = 2; // grout
+    for (let i = 0; i <= N; i++) { g.beginPath(); g.moveTo(i * s, 0); g.lineTo(i * s, h); g.stroke(); g.beginPath(); g.moveTo(0, i * s); g.lineTo(w, i * s); g.stroke(); }
+  };   // textures are ONLY tiles — no baked light; caustics are projected separately
+}
+const poolTileTex  = canvasTex(512, 512, tileDraw(235, 233, 224, 1, 16, false)); // bright white-cream wall/deck tiles
+const poolBasinTex = canvasTex(512, 512, tileDraw(150, 206, 214, 1, 12));         // light teal underwater tiles — glow + clear water reads luminous teal
+const poolColTex   = poolTileTex.clone(); poolColTex.needsUpdate = true; poolColTex.wrapS = poolColTex.wrapT = THREE.RepeatWrapping; poolColTex.repeat.set(7, 5);
+// dim tiled ceiling with a warm fluorescent troffer per cell
+const poolCeilTex = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#c4beA3'; g.fillRect(0, 0, w, h);
+  g.strokeStyle = 'rgba(110,104,82,0.5)'; g.lineWidth = 2;
+  const N = 14; for (let i = 0; i <= N; i++) { const p = i * w / N; g.beginPath(); g.moveTo(p, 0); g.lineTo(p, h); g.stroke(); g.beginPath(); g.moveTo(0, p); g.lineTo(w, p); g.stroke(); }
+  g.fillStyle = '#efe6c8'; g.fillRect(w * 0.26, h * 0.40, w * 0.48, h * 0.20);   // fixture housing
+  g.fillStyle = '#fffdf4'; g.fillRect(w * 0.28, h * 0.43, w * 0.44, h * 0.14);   // the warm tube
+});
+const poolCeilEmit = canvasTex(512, 512, (g, w, h) => { g.fillStyle = '#000'; g.fillRect(0, 0, w, h); g.fillStyle = '#fff'; g.fillRect(w * 0.28, h * 0.43, w * 0.44, h * 0.14); });
+// tileable ripple normal map for the water surface
+function rippleNormal(size) {
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const g = c.getContext('2d'), img = g.createImageData(size, size);
+  const k = Math.PI * 2 / size;
+  const H = (x, y) => Math.sin((x * 2 + y) * k * 3) + Math.sin((x - y * 3) * k * 2) * 0.7 + Math.sin((x * 3 + y * 2) * k * 4) * 0.4;
+  const m = n => (n + size) % size;
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const nx = -(H(m(x + 1), y) - H(m(x - 1), y)) * 0.5, ny = -(H(x, m(y + 1)) - H(x, m(y - 1))) * 0.5, nz = 1;
+    const l = Math.hypot(nx, ny, nz), i = (y * size + x) * 4;
+    img.data[i] = (nx / l * 0.5 + 0.5) * 255; img.data[i + 1] = (ny / l * 0.5 + 0.5) * 255; img.data[i + 2] = (nz / l * 0.5 + 0.5) * 255; img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.NoColorSpace; t.anisotropy = 4;
+  return t;
+}
+const poolNormalTex = rippleNormal(128);
+// tileable caustic — thin bright wavy light bands, used as the moving reflection on the columns
+function causticTex(size) {
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const g = c.getContext('2d'), img = g.createImageData(size, size), k = Math.PI * 2 / size;
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const v = Math.sin((x * 3 + y * 2) * k) + Math.sin((x * 2 - y * 4) * k) + Math.sin((x * 5 + y) * k) + Math.sin((x - y * 2) * k * 2) * 0.6;
+    const b = Math.min(1, Math.pow(1 - Math.abs(v) / 3.6, 7) * 1.3);  // thin, sparse caustic filaments (subtle on bright tile)
+    const i = (y * size + x) * 4; img.data[i] = b * 255; img.data[i + 1] = b * 255; img.data[i + 2] = b * 235; img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.NoColorSpace; return t;
+}
+const poolCausticTex = causticTex(128); poolCausticTex.repeat.set(1.3, 1.3);        // used ONLY by the projected caustic overlay, never baked into a tile
+// Poolrooms tile materials — these are plain tiles, nothing else painted on
+const poolTileMat  = new THREE.MeshStandardMaterial({ map: poolTileTex, roughness: 0.7, metalness: 0, side: THREE.DoubleSide });          // matte walls
+const poolDeckMat  = new THREE.MeshStandardMaterial({ map: poolTileTex, roughness: 0.28, metalness: 0.15, side: THREE.DoubleSide });     // wet, reflective walkway
+const poolBasinMat = new THREE.MeshStandardMaterial({ map: poolBasinTex, roughness: 0.42, metalness: 0, side: THREE.DoubleSide, emissive: new THREE.Color(0x1ec0d2), emissiveIntensity: 1.25 }); // the pool floor glows teal, so the water reads luminous in the dim rooms
+const poolColMat   = new THREE.MeshStandardMaterial({ map: poolColTex, roughness: 0.55, metalness: 0 });
+// additive caustic LIGHT, drawn only on the submerged pool floor
+const poolCausticMat = new THREE.MeshBasicMaterial({ map: poolCausticTex, color: 0x5fe6f4, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, vertexColors: true, toneMapped: false, side: THREE.DoubleSide }); // bright cyan caustics
+const POOL_DEPTH = 1.3, POOL_WATER = -0.16; // dry deck at y=0; pools sink to -POOL_DEPTH, the Water surface sits at POOL_WATER (just below the deck)
+
+// ---------- Level 2 "Pipe Dreams" (dark concrete service tunnels, pipes everywhere) ----------
+const concWallTex = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#6c695f'; g.fillRect(0, 0, w, h);
+  speckle(g, w, h, 20000, 0.12, false); speckle(g, w, h, 7000, 0.07, true);
+  g.strokeStyle = 'rgba(28,26,22,0.4)'; g.lineWidth = 2;
+  for (let y = 0; y < h; y += 128) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }     // form-board seams
+  g.strokeStyle = 'rgba(28,26,22,0.22)';
+  for (let x = 0; x < w; x += 170) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
+  for (let i = 0; i < 30; i++) { const x = Math.random() * w, gr = g.createLinearGradient(x, 0, x, h); gr.addColorStop(0, 'rgba(42,30,18,0.28)'); gr.addColorStop(1, 'rgba(42,30,18,0)'); g.fillStyle = gr; g.fillRect(x, Math.random() * h * 0.3, 3 + Math.random() * 6, h); } // rust streaks
+  for (let i = 0; i < 16; i++) { const x = Math.random() * w, y = Math.random() * h, r = 20 + Math.random() * 60, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, 'rgba(18,16,12,0.3)'); rg.addColorStop(1, 'rgba(18,16,12,0)'); g.fillStyle = rg; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
+});
+const concFloorTex = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#4d4a44'; g.fillRect(0, 0, w, h);
+  speckle(g, w, h, 30000, 0.14, false); speckle(g, w, h, 9000, 0.05, true);
+  g.strokeStyle = 'rgba(18,16,12,0.5)'; g.lineWidth = 1.5;
+  for (let i = 0; i < 8; i++) { g.beginPath(); let x = Math.random() * w, y = Math.random() * h; g.moveTo(x, y); for (let k = 0; k < 6; k++) { x += (Math.random() - 0.5) * 80; y += (Math.random() - 0.5) * 80; g.lineTo(x, y); } g.stroke(); } // cracks
+  for (let i = 0; i < 10; i++) { const x = Math.random() * w, y = Math.random() * h, r = 30 + Math.random() * 70, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, 'rgba(12,12,10,0.4)'); rg.addColorStop(1, 'rgba(12,12,10,0)'); g.fillStyle = rg; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
+});
+const concCeilTex = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#58554d'; g.fillRect(0, 0, w, h);
+  speckle(g, w, h, 18000, 0.12, false);
+  g.strokeStyle = 'rgba(22,20,17,0.4)'; g.lineWidth = 2;
+  for (let i = 0; i <= 4; i++) { const p = i * w / 4; g.beginPath(); g.moveTo(p, 0); g.lineTo(p, h); g.stroke(); g.beginPath(); g.moveTo(0, p); g.lineTo(w, p); g.stroke(); }
+  for (let i = 0; i < 12; i++) { const x = Math.random() * w, y = Math.random() * h, r = 20 + Math.random() * 50, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, 'rgba(16,15,12,0.32)'); rg.addColorStop(1, 'rgba(16,15,12,0)'); g.fillStyle = rg; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
+});
+const pipeMat = new THREE.MeshStandardMaterial({ color: '#746b5c', roughness: 0.5, metalness: 0.55 });
+const pipeGeo = new THREE.CylinderGeometry(1, 1, 1, 9);
+const bulbMat = new THREE.MeshBasicMaterial({ color: '#ffdf9c', fog: true }); // self-lit fixture — always reads as "on", even far down the hall
+const bulbGeo = new THREE.BoxGeometry(0.9, 0.07, 0.32);
+const stripMat = new THREE.MeshBasicMaterial({ color: '#fff3d4', fog: true }); // self-lit fluorescent tube for Level 0's (now sparse) ceiling fixtures
+const stripGeo = new THREE.BoxGeometry(2.4, 0.06, 0.46);
+// ---------- Level 7 (Thalassophobia) — the endless ocean ----------
+const stoneTex = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#39423f'; g.fillRect(0, 0, w, h);                 // dark wet stone
+  speckle(g, w, h, 20000, 0.14, false); speckle(g, w, h, 6000, 0.05, true);
+  g.strokeStyle = 'rgba(14,18,18,0.5)'; g.lineWidth = 2;
+  const N = 6, s = w / N; for (let i = 0; i <= N; i++) { g.beginPath(); g.moveTo(i * s, 0); g.lineTo(i * s, h); g.stroke(); g.beginPath(); g.moveTo(0, i * s); g.lineTo(w, i * s); g.stroke(); }
+  for (let i = 0; i < 10; i++) { const x = Math.random() * w, y = Math.random() * h, r = 20 + Math.random() * 60, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, 'rgba(10,14,14,0.4)'); rg.addColorStop(1, 'rgba(10,14,14,0)'); g.fillStyle = rg; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
+});
+// weathered, water-stained siding for the half-sunk flooded houses that dot the Level 7 ocean
+const houseTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#6f6a5c'; g.fillRect(0, 0, w, h);                 // grey-brown weathered wall
+  for (let y = 0; y < h; y += 14) { g.fillStyle = 'rgba(40,38,32,0.28)'; g.fillRect(0, y, w, 2); }  // horizontal clapboard lines
+  speckle(g, w, h, 6000, 0.14, false); speckle(g, w, h, 2000, 0.06, true);
+  for (let i = 0; i < 8; i++) { const x = Math.random() * w, y = h * (0.4 + Math.random() * 0.6), r = 14 + Math.random() * 40, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, 'rgba(26,30,26,0.4)'); rg.addColorStop(1, 'rgba(26,30,26,0)'); g.fillStyle = rg; g.fillRect(x - r, y - r, 2 * r, 2 * r); } // waterline grime
+});
+houseTex.wrapS = houseTex.wrapT = THREE.RepeatWrapping; houseTex.repeat.set(2, 2);
+const houseMat = new THREE.MeshStandardMaterial({ map: houseTex, roughness: 0.9, metalness: 0, side: THREE.DoubleSide });
+const roofMat = new THREE.MeshStandardMaterial({ color: '#4a4640', roughness: 0.95, metalness: 0 });   // dark weathered roof/shingle
+const winMat = new THREE.MeshStandardMaterial({ color: '#0a0f13', roughness: 0.2, metalness: 0.35, side: THREE.DoubleSide }); // dark broken glass
+const HS = 4.6;                                                    // flooded-house footprint
+const isHouse7 = (i, j) => Math.abs(i) > 1 || Math.abs(j) > 1 ? hash(i, j, 77) < 0.016 : false; // rare houses, never on spawn
+
+// ---------- renderer / scene ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)); // render at native (Retina) resolution so it's crisp, not pixelated
+renderer.toneMapping = THREE.ACESFilmicToneMapping;   // filmic highlight rolloff instead of harsh clipping -> more realistic light response
+renderer.toneMappingExposure = 1.15;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;  // soft shadows (used on Level 7)
+renderer.xr.enabled = true;                              // WebXR (VR headsets)
+document.body.prepend(renderer.domElement);
+document.body.appendChild(VRButton.createButton(renderer));  // "ENTER VR" button (shows on headsets / WebXR browsers)
+
+const scene = new THREE.Scene();
+// image-based lighting: a procedural room env so every PBR surface (wet deck, pipes, columns, tile)
+// picks up soft realistic reflections and ambient instead of looking flat. Per-level strength set in setLevel.
+const _pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = _pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+const FOG = new THREE.Color('#a38f45');
+scene.background = FOG;
+scene.fog = new THREE.Fog(FOG, 7, 46);
+
+const camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.05, 120);
+camera.rotation.order = 'YXZ';
+// VR rig: in XR the headset drives the camera, so we move this dolly for locomotion and let XR pose the camera.
+const dolly = new THREE.Group(); dolly.add(camera); scene.add(dolly);
+renderer.xr.addEventListener('sessionstart', () => { help.classList.add('hidden'); mode = 'fp'; });
+renderer.xr.addEventListener('sessionend', () => { dolly.position.set(0, 0, 0); dolly.rotation.set(0, 0, 0); });
+
+// three.js reflective Water — one plane for all the Poolrooms pools, its geometry rebuilt as you move.
+// It renders a real mirror reflection of the room + a moving normal-map ripple + a warm sun glint.
+poolNormalTex.wrapS = poolNormalTex.wrapT = THREE.RepeatWrapping;
+const poolWater = new Water(new THREE.BufferGeometry(), {
+  textureWidth: 512, textureHeight: 512,
+  waterNormals: poolNormalTex,
+  sunDirection: new THREE.Vector3(0.25, 1.0, 0.1).normalize(),
+  sunColor: 0xd6fbff, waterColor: 0x15929f, distortionScale: 2.2, fog: true, alpha: 0.66,  // luminous teal pool water (Escape-the-Backrooms Poolrooms look)
+});
+poolWater.rotation.x = -Math.PI / 2; poolWater.position.y = POOL_WATER;
+poolWater.material.transparent = true;
+poolWater.material.uniforms.size.value = 26.0;  // ripple scale (bigger number = finer waves)
+poolWater.renderOrder = 2; poolWater.visible = false;
+scene.add(poolWater);
+let waterDirty = true, waterChunkSig = '';
+
+// Level 7: one big dark reflective ocean plane that follows the player to the fog horizon
+const OCEAN_Y = 0.85;
+const oceanWater = new Water(new THREE.PlaneGeometry(800, 800), {
+  textureWidth: 1024, textureHeight: 1024, waterNormals: poolNormalTex,   // high-res mirror reflection of the real sky
+  sunDirection: new THREE.Vector3(0.2, 0.9, 0.35).normalize(),
+  sunColor: 0xffe6c6, waterColor: 0x0c1824, distortionScale: 3.6, fog: true, alpha: 0.9,  // deep dark navy sea with a warm sun glint
+});
+oceanWater.rotation.x = -Math.PI / 2; oceanWater.position.y = OCEAN_Y;
+oceanWater.material.transparent = true; oceanWater.material.uniforms.size.value = 10.0;
+oceanWater.renderOrder = 2; oceanWater.visible = false;
+scene.add(oceanWater);
+
+const hemi = new THREE.HemisphereLight('#fff2c0', '#7a6428', 2.1);
+scene.add(hemi);
+const ambient = new THREE.AmbientLight('#f5e3a0', 0.35);
+scene.add(ambient);
+
+const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.92, metalness: 0 });
+const floorMat = new THREE.MeshStandardMaterial({ map: carpetTex, roughness: 1, metalness: 0 });
+const ceilMat = new THREE.MeshStandardMaterial({ map: ceilTex, emissiveMap: ceilEmit, emissive: new THREE.Color('#fff6d8'), emissiveIntensity: 1.4, roughness: 0.9 });
+
+const PLANE = 240;
+carpetTex.repeat.set(PLANE / CELL, PLANE / CELL);
+ceilTex.repeat.set(PLANE / CELL, PLANE / CELL);
+ceilEmit.repeat.copy(ceilTex.repeat);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(PLANE, PLANE), floorMat);
+floor.rotation.x = -Math.PI / 2; scene.add(floor);
+const ceil = new THREE.Mesh(new THREE.PlaneGeometry(PLANE, PLANE), ceilMat);
+ceil.rotation.x = Math.PI / 2; ceil.position.y = WALL_H; scene.add(ceil);
+
+// point lights that hop to the panels nearest the player
+const LIGHTS = [];
+for (let i = 0; i < 9; i++) {   // a 3x3 block of ceiling lights around the player (every light here is paid for by the shader on every level, so keep it small)
+  const l = new THREE.PointLight('#fff1c8', 7, 14, 1.15);
+  scene.add(l); LIGHTS.push(l);
+}
+const sun = new THREE.DirectionalLight('#ffe7c2', 0); // warm "sunlight" for the Poolrooms (off in Level 0); also the Level 7 sun
+sun.position.set(9, 13, 5); scene.add(sun); scene.add(sun.target);
+sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 320;
+sun.shadow.camera.left = -70; sun.shadow.camera.right = 70; sun.shadow.camera.top = 70; sun.shadow.camera.bottom = -70;
+sun.shadow.bias = -0.0005;
+
+// Level 7 atmospheric sky + a low sun the ocean reflects
+const sky = new Sky(); sky.scale.setScalar(12000); sky.visible = false; scene.add(sky);
+{ const u = sky.material.uniforms; u.turbidity.value = 18; u.rayleigh.value = 0.55; u.mieCoefficient.value = 0.03; u.mieDirectionalG.value = 0.8; }  // hazy, desaturated — bleak overcast rather than clear blue
+const sunPos = new THREE.Vector3();
+function setOceanSun(elevDeg, aziDeg) {
+  const phi = THREE.MathUtils.degToRad(90 - elevDeg), theta = THREE.MathUtils.degToRad(aziDeg);
+  sunPos.setFromSphericalCoords(1, phi, theta);
+  sky.material.uniforms.sunPosition.value.copy(sunPos);
+  oceanWater.material.uniforms.sunDirection.value.copy(sunPos).normalize();
+}
+setOceanSun(5, 150);  // very low sun -> bleak dusk horizon glow + a glint streak on the sea
+
+// ---------- levels ----------
+// Wider light range + stronger ambient fill than before, so the floor no longer shows a dark
+// grid in the corner of every ceiling-panel square.
+const LEVELS = {
+  level0: {
+    name: 'LEVEL 0', ceil: ceilTex, ceilEmit: ceilEmit,
+    fog: new THREE.Color('#b1a978'), fogNear: 6, fogFar: 40,          // paler, grayer haze (muted like the real Level 0 photo)
+    hemiSky: '#e4e0c2', hemiGround: '#7c7452', hemi: 0.62, ambCol: '#d8cfab', amb: 0.4, // low flat fill so the real fixtures' falloff actually shows (bounce/skylight only)
+    lightCol: '#fff2d2', light: 7.5, lightDist: 16, lightDecay: 2, sun: 0, flickRate: 0.03,  // REAL fluorescent fixtures: point lights with physical inverse-square falloff
+    fixtureLights: true, fixtureSeed: 71, fixtureRate: 0.16, fixtureGeo: stripGeo, fixtureMat: stripMat, fixtureY: WALL_H - 0.03,  // sparse: a working fluorescent tube only every so often
+    emissiveCol: '#fff6d8', emissive: 0, water: false, env: 0.28,
+  },
+  pool: {
+    name: 'POOLROOMS', floorNormal: poolNormalTex, ceil: poolCeilTex, ceilEmit: poolCeilEmit,
+    fog: new THREE.Color('#383d3e'), fogNear: 5, fogFar: 32,           // dim, cool neutral haze — moody rooms where the glowing water is the brightest thing
+    hemiSky: '#555854', hemiGround: '#282a25', hemi: 0.32, ambCol: '#484a44', amb: 0.24,
+    lightCol: '#2fd2e6', light: 8, lightDist: 14, lightDecay: 2, sun: 0, poolLights: true,  // teal light cast off the water onto the nearby columns/walls
+    emissiveCol: '#fff3d6', emissive: 0.72, water: true, env: 0.22,
+  },
+  level2: {
+    name: 'LEVEL 2 — PIPE DREAMS', ceil: concCeilTex, ceilEmit: null,
+    fog: new THREE.Color('#17150d'), fogNear: 4, fogFar: 30,           // dark murk — long unlit stretches between the rare lights
+    hemiSky: '#343022', ambCol: '#302c1e', hemiGround: '#1a170e', hemi: 0.55, amb: 0.42,  // low fill so the real light pools stand out; still enough to see the halls between lights
+    lightCol: '#ffd9a0', light: 30, lightDist: 20, lightDecay: 2, sun: 0, fixtureLights: true, fixtureSeed: 70, fixtureRate: 0.11, fixtureGeo: bulbGeo, fixtureMat: bulbMat, fixtureY: WALL_H - 0.05,  // real point lights pinned to the rare fixtures — physical inverse-square falloff, identical near and far
+    emissiveCol: '#000000', emissive: 0, water: false, concrete: true, flickRate: 0.05, env: 0.22,
+  },
+  level7: {
+    name: 'LEVEL 7 — THALASSOPHOBIA', ceil: ceilTex, ceilEmit: null,
+    fog: new THREE.Color('#8b98a3'), fogNear: 14, fogFar: 100,         // hazy horizon that blends the sea into the atmospheric sky
+    hemiSky: '#aebcc6', hemiGround: '#232f36', hemi: 1.1, ambCol: '#60707b', amb: 0.38, // soft sky fill
+    lightCol: '#ffe2bf', light: 0, lightDist: 16, lightDecay: 2, sun: 2.4,  // low dusk sun casting across the water (shadows on)
+    emissiveCol: '#000000', emissive: 0, water: false, ocean: true, env: 0.28,
+  },
+};
+const LEVEL_ORDER = ['level0', 'pool', 'level2', 'level7'];
+let LV, currentLevel;
+function setLevel(name) {
+  const L = LEVELS[name]; if (!L || name === currentLevel) return; LV = L; currentLevel = name;
+  // Level 0 draws walls/floor/ceiling with the shared mats + global planes; Poolrooms builds its
+  // own tiled geometry per chunk, so here we only need its ceiling + lighting + fog.
+  if (name === 'level0') { wallMat.map = wallTex; wallMat.needsUpdate = true; floorMat.map = carpetTex; floorMat.normalMap = null; floorMat.roughness = 1; floorMat.needsUpdate = true; carpetTex.repeat.set(PLANE / CELL, PLANE / CELL); }
+  if (name === 'level2') { wallMat.map = concWallTex; wallMat.needsUpdate = true; floorMat.map = concFloorTex; floorMat.normalMap = null; floorMat.roughness = 0.92; floorMat.needsUpdate = true; concFloorTex.repeat.set(PLANE / CELL, PLANE / CELL); }
+  if (name === 'level7') { floorMat.map = stoneTex; floorMat.normalMap = null; floorMat.roughness = 0.7; floorMat.needsUpdate = true; stoneTex.wrapS = stoneTex.wrapT = THREE.RepeatWrapping; stoneTex.repeat.set(PLANE / CELL, PLANE / CELL); }
+  ceilMat.map = L.ceil; ceilMat.emissiveMap = L.ceilEmit; ceilMat.emissive.set(L.emissiveCol); ceilMat.needsUpdate = true;
+  L.ceil.repeat.set(PLANE / CELL, PLANE / CELL); if (L.ceilEmit) L.ceilEmit.repeat.copy(L.ceil.repeat);
+  hemi.color.set(L.hemiSky); hemi.groundColor.set(L.hemiGround); ambient.color.set(L.ambCol);
+  for (const l of LIGHTS) { l.color.set(L.lightCol); l.distance = L.lightDist; l.decay = L.lightDecay; }
+  sun.intensity = L.sun;
+  scene.environmentIntensity = L.env != null ? L.env : 0.5;   // how strongly the env reflections/ambient show (kept low on the dark level)
+  scene.fog.near = L.fogNear; scene.fog.far = L.fogFar; scene.background = L.fog;
+  floor.visible = !L.water;                                   // Poolrooms supplies its own per-cell floor
+  ceil.visible = !L.ocean;                                    // the ocean level is open to the (foggy) sky — no ceiling
+  oceanWater.visible = !!L.ocean; sky.visible = !!L.ocean; sun.castShadow = !!L.ocean;  // only the ocean level casts sun shadows
+  if (L.ocean) { sun.position.copy(sunPos).multiplyScalar(220); sun.color.set(L.lightCol); }
+  if (typeof poolWater !== 'undefined') { poolWater.visible = false; waterChunkSig = ''; } // force a water rebuild for the new level
+  if (typeof chunks !== 'undefined') {                        // rebuild the world for the new level
+    for (const [, g] of chunks) { scene.remove(g); g.traverse(o => o.geometry && o.geometry.dispose()); }
+    chunks.clear(); cellCache.clear();
+  }
+}
+
+// ---------- level generation ----------
+const spawnOpen = (i, j) => Math.abs(i) <= 1 && Math.abs(j) <= 1; // keep spawn clear
+function zoneOf(i, j) {
+  const r = hash(Math.floor(i / 5), Math.floor(j / 5), 7);
+  return r < 0.07 ? 'pillars' : r < 0.52 ? 'dense' : 'normal';
+}
+function level0Boxes(i, j) {
+  const b = [], near = spawnOpen(i, j), zone = zoneOf(i, j);
+  const x0 = i * CELL, z0 = j * CELL, x1 = x0 + CELL, z1 = z0 + CELL, T = 0.2;   // thicker walls
+  if (near) return b;
+  if (zone === 'pillars') {
+    if ((i + j) % 2 === 0 && hash(i, j, 3) < 0.75) b.push([x1 - .45, x1 + .45, 0, WALL_H, z1 - .45, z1 + .45]);
+  } else {
+    const p = zone === 'dense' ? 0.82 : 0.66;   // denser walls -> tighter rooms/corridors
+    for (const axis of [0, 1]) {
+      if (hash(i, j, axis) >= p) continue;
+      const door = hash(i, j, axis + 10) < 0.42;
+      const seg = (a, c) => axis === 0 ? [x1 - T, x1 + T, 0, WALL_H, a, c] : [a, c, 0, WALL_H, z1 - T, z1 + T];
+      const s0 = axis === 0 ? z0 : x0, s1 = s0 + CELL;
+      if (door) { b.push(seg(s0 - T, s0 + 1.75), seg(s0 + 3.25, s1 + T)); const hdr = seg(s0 + 1.75, s0 + 3.25); hdr[2] = 2.25; b.push(hdr); }
+      else b.push(seg(s0 - T, s1 + T));
+    }
+    if (hash(i, j, 5) < 0.14) b.push([x1 - .4, x1 + .4, 0, WALL_H, z1 - .4, z1 + .4]);
+  }
+  return b;
+}
+// ---- Level 2 "Pipe Dreams" layout: long E-W corridors (lanes), with rare N-S connectors to the
+// neighbouring corridor and more-frequent short stubs that dead-end. Everything else is solid concrete.
+const LANE = 6;
+function isOpen2(i, j) {
+  if (spawnOpen(i, j)) return true;
+  const m = ((j % LANE) + LANE) % LANE;
+  if (m === 0) return true;                                        // on a long corridor lane
+  const L = Math.floor(j / LANE) * LANE;                           // lane below (at L); next lane at L+LANE
+  if (hash(i, L, 60) < 0.09) return true;                          // rare connector: a turn through to the next long corridor
+  if (hash(i, L, 61) < 0.16 && m <= 1 + (hash(i, L, 62) < 0.5 ? 1 : 0)) return true;             // stub up from lane L -> small dead end
+  if (hash(i, L + LANE, 63) < 0.16 && (LANE - m) <= 1 + (hash(i, L + LANE, 64) < 0.5 ? 1 : 0)) return true; // stub down from the upper lane
+  return false;
+}
+const HW2 = 1.1;                                                    // half corridor width -> ~2.2m wide passages
+function level2Boxes(i, j) {                                        // fill everything except a narrow passage down the middle of the cell
+  const b = []; if (!isOpen2(i, j)) return b;
+  const x0 = i * CELL, z0 = j * CELL, x1 = x0 + CELL, z1 = z0 + CELL, cx = x0 + CELL / 2, cz = z0 + CELL / 2;
+  const a = cx - HW2, bx = cx + HW2, az = cz - HW2, bz = cz + HW2;
+  const W = isOpen2(i - 1, j), E = isOpen2(i + 1, j), S = isOpen2(i, j - 1), N = isOpen2(i, j + 1);
+  if (!S) b.push([x0, x1, 0, WALL_H, z0, az]); else { b.push([x0, a, 0, WALL_H, z0, az]); b.push([bx, x1, 0, WALL_H, z0, az]); } // south strip
+  if (!N) b.push([x0, x1, 0, WALL_H, bz, z1]); else { b.push([x0, a, 0, WALL_H, bz, z1]); b.push([bx, x1, 0, WALL_H, bz, z1]); } // north strip
+  if (!W) b.push([x0, a, 0, WALL_H, az, bz]);                       // west side of the middle band
+  if (!E) b.push([bx, x1, 0, WALL_H, az, bz]);                      // east side
+  return b;
+}
+// ---- Poolrooms layout ----
+// Enclosed white-tiled rooms joined by doorways. Rooms are 'pool' (a contained sunken pool in the
+// middle with a dry deck around it), 'columns' (a pool with tiled columns rising out of it), or
+// 'open' (a dry room). Water lives only in the sunken basins; everything else is dry deck.
+const ROOM = 3, COL_R = 0.72;   // 3 cells per room = tighter Poolrooms (walls closer together)
+const rID = i => Math.floor(i / ROOM);
+const loc = i => ((i % ROOM) + ROOM) % ROOM;
+const roomType = (rI, rJ) => { const r = hash(rI, rJ, 70); return r < 0.46 ? 'pool' : r < 0.78 ? 'columns' : 'open'; };
+const cellRoom = (i, j) => roomType(rID(i), rID(j));
+const hasPool = t => t === 'pool' || t === 'columns';
+const inner = i => loc(i) >= 1 && loc(i) <= ROOM - 2;
+const isDeep = (i, j) => !spawnOpen(i, j) && hasPool(cellRoom(i, j)) && inner(i) && inner(j);  // sunken pool water
+// each room's pool is a different depth — shallow wade areas, mid pools, and sudden deep pits — so
+// the terrain reads as "weird": the water surface is one flat level everywhere, but the tiled floor
+// under it rises and drops from room to room.
+const roomDepth = (rI, rJ) => { const r = hash(rI, rJ, 73); return r < 0.3 ? 0.55 : r < 0.62 ? 1.35 : r < 0.84 ? 2.2 : 3.1; };
+const cellDepth = (i, j) => roomDepth(rID(i), rID(j));
+// which deep pool rooms get a staircase plunging into the water, and from which side
+const hasStairs = (rI, rJ) => roomDepth(rI, rJ) >= 1.35 && hash(rI, rJ, 74) < 0.7;
+const stairSide = (rI, rJ) => Math.floor(hash(rI, rJ, 75) * 4);  // 0:-x 1:+x 2:-z 3:+z
+function isColumnCell(i, j) {
+  if (spawnOpen(i, j)) return false;
+  const t = cellRoom(i, j), lx = loc(i), lz = loc(j);
+  if (t === 'columns') return (lx + lz) % 2 === 0;                          // dense checkerboard forest of pillars
+  if (t === 'pool') return (lx === 0 || lx === ROOM - 1) && (lz === 0 || lz === ROOM - 1); // columns at the deck corners (keeps the small pool clear)
+  return false;
+}
+// walls on room boundaries, each with a centered doorway (header left high so you walk under it);
+// a few boundaries between two shallow rooms open fully to form a larger hall
+function pushDoorWall(b, axis, c, s0, s1, gc, T, HY) {
+  const lo = gc - 1.5, hi = gc + 1.5;
+  const seg = (a0, a1, y0) => axis === 0 ? [c - T, c + T, y0, WALL_H, a0, a1] : [a0, a1, y0, WALL_H, c - T, c + T];
+  if (s0 < lo) b.push(seg(s0, Math.min(s1, lo), 0));
+  if (s1 > hi) b.push(seg(Math.max(s0, hi), s1, 0));
+  const gl = Math.max(s0, lo), gr = Math.min(s1, hi);
+  if (gr > gl) b.push(seg(gl, gr, HY));                                     // header above the doorway gap
+}
+function wallBoxes(i, j) {
+  const b = []; if (spawnOpen(i, j)) return b;
+  const x0 = i * CELL, z0 = j * CELL, x1 = x0 + CELL, z1 = z0 + CELL, T = 0.14, HY = 2.35;
+  if (loc(i) === ROOM - 1) {                                               // +x room boundary
+    if (hash(rID(i), rID(j), 80) >= 0.15) pushDoorWall(b, 0, x1, z0, z1, rID(j) * ROOM * CELL + ROOM * CELL / 2, T, HY); // a few open fully into a bigger hall
+  }
+  if (loc(j) === ROOM - 1) {                                               // +z room boundary
+    if (hash(rID(i), rID(j), 81) >= 0.15) pushDoorWall(b, 1, z1, x0, x1, rID(i) * ROOM * CELL + ROOM * CELL / 2, T, HY);
+  }
+  return b;
+}
+const cellCache = new Map();
+function cellBoxes(i, j) {
+  const key = i + ',' + j; let b = cellCache.get(key); if (b) return b;
+  if (currentLevel === 'pool') {
+    b = wallBoxes(i, j);
+    if (isColumnCell(i, j)) { const cx = i * CELL + CELL / 2, cz = j * CELL + CELL / 2; b.push([cx - COL_R, cx + COL_R, 0, WALL_H, cz - COL_R, cz + COL_R]); }
+    if (isDeep(i, j)) b.push([i * CELL, i * CELL + CELL, 0, 0.7, j * CELL, j * CELL + CELL]); // stay on the deck, walk around the pool
+  } else if (currentLevel === 'level2') b = level2Boxes(i, j);
+  else if (currentLevel === 'level7') { b = []; if (isHouse7(i, j)) { const cx = i * CELL + CELL / 2, cz = j * CELL + CELL / 2, r = HS / 2 + 0.2; b.push([cx - r, cx + r, 0, WALL_H, cz - r, cz + r]); } } // open water; wade around the flooded houses
+  else b = level0Boxes(i, j);
+  cellCache.set(key, b); return b;
+}
+
+function addBox(P, N, U, [x0, x1, y0, y1, z0, z1]) {
+  const faces = [
+    [[1, 0, 0], [[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]]],
+    [[-1, 0, 0], [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]]],
+    [[0, 0, 1], [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]]],
+    [[0, 0, -1], [[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]]],
+    [[0, 1, 0], [[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]]],
+    [[0, -1, 0], [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]]],
+  ];
+  for (const [n, v] of faces) {
+    for (const idx of [0, 1, 2, 0, 2, 3]) {
+      const [x, y, z] = v[idx];
+      P.push(x, y, z); N.push(...n);
+      if (n[0]) U.push(z / 2.5, y / WALL_H);
+      else if (n[2]) U.push(x / 2.5, y / WALL_H);
+      else U.push(x / 2.5, z / 2.5);
+    }
+  }
+}
+
+// horizontal quad (floor/basin/water); vertical quad (pool skirt)
+function addQuadY(P, N, U, x0, x1, z0, z1, y, up, uvs) {
+  const n = up ? 1 : -1, s = uvs || 2.5;
+  const verts = up ? [[x0, y, z1], [x1, y, z1], [x1, y, z0], [x0, y, z1], [x1, y, z0], [x0, y, z0]]
+                   : [[x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z0], [x1, y, z1], [x0, y, z1]];
+  for (const [x, yy, z] of verts) { P.push(x, yy, z); N.push(0, n, 0); U.push(x / s, z / s); }
+}
+function addWallSeg(P, N, U, ax, az, bx, bz, yb, yt) {
+  let nx = bz - az, nz = -(bx - ax); const l = Math.hypot(nx, nz) || 1; nx /= l; nz /= l;
+  const v = [[ax, yb, az], [bx, yb, bz], [bx, yt, bz], [ax, yb, az], [bx, yt, bz], [ax, yt, az]];
+  for (const [x, y, z] of v) { P.push(x, y, z); N.push(nx, 0, nz); const hor = Math.abs(bx - ax) > Math.abs(bz - az) ? x : z; U.push(hor / 2.5, y / 2.5); }
+}
+function geoMesh(P, N, U, mat) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+  g.computeBoundingSphere();
+  return new THREE.Mesh(g, mat);
+}
+// a single tilted, half-submerged flooded house (room shell with a doorway + flat roof), built in local
+// coords so it can be tilted/rotated like it's sinking askew in the Level 7 ocean
+function makeHouse(wx, wz, i, j) {
+  const hw = HS / 2 * (0.75 + hash(i, j, 84) * 0.7), hd = HS / 2 * (0.75 + hash(i, j, 85) * 0.7), T = 0.16;
+  const yb = -2.1, yt = 1.3 + hash(i, j, 86) * 1.5, DW = 1.2, DH = 2.0;   // varied footprint + height; ~half sits under the water (0.85)
+  const P = [], N = [], U = [], rP = [], rN = [], rU = [], wP = [], wN = [], wU = [];
+  addBox(P, N, U, [-hw, hw, yb, yt, -hd, -hd + T]);              // back wall
+  addBox(P, N, U, [-hw, -hw + T, yb, yt, -hd, hd]);             // left wall
+  addBox(P, N, U, [hw - T, hw, yb, yt, -hd, hd]);               // right wall
+  addBox(P, N, U, [-hw, -DW / 2, yb, yt, hd - T, hd]);         // front wall, left of door
+  addBox(P, N, U, [DW / 2, hw, yb, yt, hd - T, hd]);           // front wall, right of door
+  addBox(P, N, U, [-DW / 2, DW / 2, yb + DH, yt, hd - T, hd]); // header over the door
+  addBox(rP, rN, rU, [-hw - 0.15, hw + 0.15, yt, yt + 0.18, -hd - 0.15, hd + 0.15]); // roof slab + overhang
+  if (hash(i, j, 87) < 0.6) addBox(rP, rN, rU, [hw * 0.35, hw * 0.35 + 0.5, yt + 0.18, yt + 1.0, -hd * 0.35, -hd * 0.35 + 0.5]); // chimney
+  const wy0 = 1.05, wy1 = Math.min(yt - 0.25, wy0 + 0.95), hww = 0.42;  // window band, above the waterline
+  if (wy1 > wy0 + 0.3) {
+    const quad = (a, b, c, d, n) => { for (const v of [a, b, c, a, c, d]) { wP.push(v[0], v[1], v[2]); wN.push(n[0], n[1], n[2]); wU.push(0, 0); } };
+    for (const s of [-1, 1]) { const cz = s * hd * 0.42, x = hw + 0.03; quad([x, wy0, cz - hww], [x, wy0, cz + hww], [x, wy1, cz + hww], [x, wy1, cz - hww], [1, 0, 0]); }
+    for (const s of [-1, 1]) { const cz = s * hd * 0.42, x = -hw - 0.03; quad([x, wy0, cz + hww], [x, wy0, cz - hww], [x, wy1, cz - hww], [x, wy1, cz + hww], [-1, 0, 0]); }
+    { const z = -hd - 0.03; quad([-hww, wy0, z], [hww, wy0, z], [hww, wy1, z], [-hww, wy1, z], [0, 0, -1]); } // back-wall window
+  }
+  const grp = new THREE.Group();
+  const wall = geoMesh(P, N, U, houseMat); wall.castShadow = wall.receiveShadow = true; wall.frustumCulled = false; grp.add(wall);
+  const roof = geoMesh(rP, rN, rU, roofMat); roof.castShadow = roof.receiveShadow = true; roof.frustumCulled = false; grp.add(roof);
+  if (wP.length) { const win = geoMesh(wP, wN, wU, winMat); win.frustumCulled = false; grp.add(win); }
+  grp.position.set(wx, 0, wz);
+  grp.rotation.set((hash(i, j, 81) - 0.5) * 0.26, hash(i, j, 82) * Math.PI * 2, (hash(i, j, 83) - 0.5) * 0.26); // tilt + random facing
+  return grp;
+}
+// caustic-light overlay geometry (positions + uv + per-vertex brightness, no normals — it's unlit additive)
+const CUV = 2.0;
+function addCausticFloor(P, U, C, x0, x1, z0, z1, y, b) {
+  for (const [x, z] of [[x0, z1], [x1, z1], [x1, z0], [x0, z1], [x1, z0], [x0, z0]]) { P.push(x, y, z); U.push(x / CUV, z / CUV); C.push(b, b, b); }
+}
+function addCausticWall(P, U, C, ax, az, bx, bz, yb, yt, bb, bt) { // vertical band, brightness fades bb(bottom)->bt(top)
+  const v = [[ax, yb, az, bb], [bx, yb, bz, bb], [bx, yt, bz, bt], [ax, yb, az, bb], [bx, yt, bz, bt], [ax, yt, az, bt]];
+  for (const [x, y, z, b] of v) { P.push(x, y, z); const hor = Math.abs(bx - ax) > Math.abs(bz - az) ? x : z; U.push(hor / CUV, y / CUV); C.push(b, b, b); }
+}
+function causticMesh(P, U, C) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+  g.computeBoundingSphere();
+  const m = new THREE.Mesh(g, poolCausticMat); m.renderOrder = 1; return m;
+}
+// Rebuild the single Water plane's geometry from the pool cells in all loaded chunks (local coords
+// are the flat-rotated space: world (x,z) -> local (x,-z,0), so the plane sits at y = POOL_WATER).
+function rebuildPoolWater() {
+  const P = [];
+  for (const key of chunks.keys()) {
+    const [cx, cz] = key.split(',').map(Number);
+    for (let i = cx * CHUNK; i < (cx + 1) * CHUNK; i++) for (let j = cz * CHUNK; j < (cz + 1) * CHUNK; j++) {
+      if (!isDeep(i, j)) continue;
+      const x0 = i * CELL, z0 = j * CELL, x1 = x0 + CELL, z1 = z0 + CELL;
+      for (const [x, z] of [[x0, z1], [x1, z1], [x1, z0], [x0, z1], [x1, z0], [x0, z0]]) P.push(x, -z, 0);
+    }
+  }
+  poolWater.geometry.dispose();
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  g.computeVertexNormals();
+  poolWater.geometry = g;
+  poolWater.visible = currentLevel === 'pool' && P.length > 0;
+}
+// a tiled staircase plunging from the deck down into a pool, on one edge of the cell (side 0:-x 1:+x 2:-z 3:+z)
+function poolStairs(P, N, U, x0, x1, z0, z1, pd, side) {
+  const n = Math.max(3, Math.round(pd / 0.4)), run = Math.min(2.4, CELL * 0.55);
+  for (let k = 0; k < n; k++) {
+    const t0 = k / n, t1 = (k + 1) / n, yTop = -pd * k / n;   // the step nearest the deck is flush with it, each one deeper as it goes in
+    if (side === 0) addBox(P, N, U, [x0 + run * t0, x0 + run * t1, -pd, yTop, z0, z1]);
+    else if (side === 1) addBox(P, N, U, [x1 - run * t1, x1 - run * t0, -pd, yTop, z0, z1]);
+    else if (side === 2) addBox(P, N, U, [x0, x1, -pd, yTop, z0 + run * t0, z0 + run * t1]);
+    else addBox(P, N, U, [x0, x1, -pd, yTop, z1 - run * t1, z1 - run * t0]);
+  }
+}
+const chunks = new Map();
+function buildChunk(cx, cz) {
+  const group = new THREE.Group();
+  const i0 = cx * CHUNK, j0 = cz * CHUNK, i1 = i0 + CHUNK, j1 = j0 + CHUNK;
+  if (currentLevel === 'pool') {
+    const tP = [], tN = [], tU = [], dP = [], dN = [], dU = [], bP = [], bN = [], bU = [], colXZ = [], cP = [], cU = [], cC = [];
+    const R = 0.22, LIP = 0.14, e = 0.04;
+    for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) {
+      const x0 = i * CELL, z0 = j * CELL, x1 = x0 + CELL, z1 = z0 + CELL;
+      if (isDeep(i, j)) {                                                      // sunken pool (the Water surface is a separate global plane)
+        const pd = cellDepth(i, j);                                           // this room's pool depth — shallow, mid, or a deep pit
+        const rI = rID(i), rJ = rID(j), stair = hasStairs(rI, rJ) ? stairSide(rI, rJ) : -1;
+        addQuadY(bP, bN, bU, x0, x1, z0, z1, -pd, true);                      // basin floor (green tile)
+        addCausticFloor(cP, cU, cC, x0, x1, z0, z1, -pd + 0.015, 0.5);        // caustics on the pool bottom
+        if (!isDeep(i - 1, j)) { if (stair === 0) poolStairs(tP, tN, tU, x0, x1, z0, z1, pd, 0); else { addWallSeg(bP, bN, bU, x0, z0, x0, z1, -pd, 0); addCausticWall(cP, cU, cC, x0 + e, z0, x0 + e, z1, -pd, POOL_WATER, 0.1, 0.22); } }
+        if (!isDeep(i + 1, j)) { if (stair === 1) poolStairs(tP, tN, tU, x0, x1, z0, z1, pd, 1); else { addWallSeg(bP, bN, bU, x1, z1, x1, z0, -pd, 0); addCausticWall(cP, cU, cC, x1 - e, z1, x1 - e, z0, -pd, POOL_WATER, 0.1, 0.22); } }
+        if (!isDeep(i, j - 1)) { if (stair === 2) poolStairs(tP, tN, tU, x0, x1, z0, z1, pd, 2); else { addWallSeg(bP, bN, bU, x1, z0, x0, z0, -pd, 0); addCausticWall(cP, cU, cC, x1, z0 + e, x0, z0 + e, -pd, POOL_WATER, 0.1, 0.22); } }
+        if (!isDeep(i, j + 1)) { if (stair === 3) poolStairs(tP, tN, tU, x0, x1, z0, z1, pd, 3); else { addWallSeg(bP, bN, bU, x0, z1, x1, z1, -pd, 0); addCausticWall(cP, cU, cC, x0, z1 - e, x1, z1 - e, -pd, POOL_WATER, 0.1, 0.22); } }
+      } else {
+        addQuadY(dP, dN, dU, x0, x1, z0, z1, 0, true);                         // dry, glossy walkway deck
+        if (isDeep(i - 1, j)) addBox(tP, tN, tU, [x0, x0 + R, 0, LIP, z0, z1]); // raised tiled lip at the pool edge
+        if (isDeep(i + 1, j)) addBox(tP, tN, tU, [x1 - R, x1, 0, LIP, z0, z1]);
+        if (isDeep(i, j - 1)) addBox(tP, tN, tU, [x0, x1, 0, LIP, z0, z0 + R]);
+        if (isDeep(i, j + 1)) addBox(tP, tN, tU, [x0, x1, 0, LIP, z1 - R, z1]);
+      }
+      for (const box of wallBoxes(i, j)) addBox(tP, tN, tU, box);              // tiled room walls + doorways
+      if (isColumnCell(i, j)) colXZ.push([x0 + CELL / 2, z0 + CELL / 2]);
+    }
+    if (tP.length) group.add(geoMesh(tP, tN, tU, poolTileMat));
+    if (dP.length) group.add(geoMesh(dP, dN, dU, poolDeckMat));
+    if (bP.length) group.add(geoMesh(bP, bN, bU, poolBasinMat));
+    if (cP.length) group.add(causticMesh(cP, cU, cC));
+    if (colXZ.length) {                                                        // square tiled columns, all in one instanced draw
+      const CB = 3.3, h = WALL_H + CB, s = COL_R * 1.9, inst = new THREE.InstancedMesh(new THREE.BoxGeometry(s, h, s), poolColMat, colXZ.length), mtx = new THREE.Matrix4();
+      colXZ.forEach((p, idx) => { mtx.makeTranslation(p[0], (WALL_H - CB) / 2, p[1]); inst.setMatrixAt(idx, mtx); }); // span from below the deepest pit up to the ceiling, so pillars rise out of pools of any depth
+      inst.instanceMatrix.needsUpdate = true; inst.frustumCulled = false; group.add(inst);
+    }
+  } else if (currentLevel === 'level7') {                           // open ocean: scattered half-sunk flooded houses
+    for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) if (isHouse7(i, j)) group.add(makeHouse(i * CELL + CELL / 2, j * CELL + CELL / 2, i, j));
+  } else {
+    const P = [], N = [], U = [];
+    for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++)
+      for (const box of cellBoxes(i, j)) addBox(P, N, U, box);
+    if (P.length) group.add(geoMesh(P, N, U, wallMat));
+    if (currentLevel === 'level2') addPipes(group, i0, j0, i1, j1);
+    if (LV.fixtureLights) {                                        // sparse self-lit ceiling fixtures (Level 0 strips, Pipe Dreams bulbs)
+      const seed = LV.fixtureSeed ?? 70, rate = LV.fixtureRate ?? 0.11, pts = [];
+      for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) {
+        if (hash(i, j, seed) >= rate) continue;
+        if (currentLevel === 'level2' && !isOpen2(i, j)) continue; // Pipe Dreams: only along the corridors
+        pts.push([i * CELL + CELL / 2, j * CELL + CELL / 2]);
+      }
+      if (pts.length) {
+        const inst = new THREE.InstancedMesh(LV.fixtureGeo, LV.fixtureMat, pts.length), mtx = new THREE.Matrix4();
+        pts.forEach((p, idx) => { mtx.makeTranslation(p[0], LV.fixtureY, p[1]); inst.setMatrixAt(idx, mtx); });
+        inst.instanceMatrix.needsUpdate = true; inst.frustumCulled = false; group.add(inst);
+      }
+    }
+  }
+  scene.add(group);
+  return group;
+}
+// Level 2 pipework: overhead runs across the ceiling + pipes along the walls, all in one instanced draw
+const _pm = new THREE.Matrix4(), _pq = new THREE.Quaternion(), _pp = new THREE.Vector3(), _ps = new THREE.Vector3(), _pe = new THREE.Euler();
+function addPipes(group, i0, j0, i1, j1) {
+  const M = [];
+  const push = (x, y, z, axis, len, r) => {
+    _pe.set(axis === 'z' ? Math.PI / 2 : 0, 0, axis === 'x' ? Math.PI / 2 : 0);
+    _pq.setFromEuler(_pe); _pp.set(x, y, z); _ps.set(r, len, r);
+    M.push(_pm.compose(_pp, _pq, _ps).clone());
+  };
+  for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) {
+    if (!isOpen2(i, j)) continue;                                                                       // pipes only run along the corridors
+    const x0 = i * CELL, z0 = j * CELL, cx = x0 + CELL / 2, cz = z0 + CELL / 2;
+    const W = isOpen2(i - 1, j), E = isOpen2(i + 1, j), S = isOpen2(i, j - 1), N = isOpen2(i, j + 1);
+    const ox = W || E, oz = S || N, pz = cz + HW2 - 0.07, nz = cz - HW2 + 0.07, px = cx + HW2 - 0.07, nx = cx - HW2 + 0.07;
+    if (ox) { push(cx, WALL_H - 0.2, cz - 0.5, 'x', CELL + 0.02, 0.07); push(cx, WALL_H - 0.2, cz + 0.5, 'x', CELL + 0.02, 0.055); if (hash(i, j, 42) < 0.5) push(cx, WALL_H - 0.42, cz, 'x', CELL + 0.02, 0.11); }
+    if (oz) { push(cx - 0.5, WALL_H - 0.2, cz, 'z', CELL + 0.02, 0.07); push(cx + 0.5, WALL_H - 0.2, cz, 'z', CELL + 0.02, 0.055); if (hash(i, j, 43) < 0.5) push(cx, WALL_H - 0.42, cz, 'z', CELL + 0.02, 0.11); }
+    if (ox && !N) { push(cx, 1.3, pz, 'x', CELL, 0.05); push(cx, 2.0, pz, 'x', CELL, 0.038); }           // pipes hugging the corridor walls
+    if (ox && !S) { push(cx, 1.3, nz, 'x', CELL, 0.05); push(cx, 2.0, nz, 'x', CELL, 0.038); }
+    if (oz && !E) { push(px, 1.3, cz, 'z', CELL, 0.05); push(px, 2.0, cz, 'z', CELL, 0.038); }
+    if (oz && !W) { push(nx, 1.3, cz, 'z', CELL, 0.05); push(nx, 2.0, cz, 'z', CELL, 0.038); }
+  }
+  if (!M.length) return;
+  const mesh = new THREE.InstancedMesh(pipeGeo, pipeMat, M.length);
+  M.forEach((m, idx) => mesh.setMatrixAt(idx, m));
+  mesh.instanceMatrix.needsUpdate = true; mesh.frustumCulled = false; group.add(mesh);
+}
+function updateChunks(px, pz) {
+  const ccx = Math.floor(px / (CELL * CHUNK)), ccz = Math.floor(pz / (CELL * CHUNK));
+  const want = new Set();
+  for (let dx = -VIEW_CHUNKS; dx <= VIEW_CHUNKS; dx++)
+    for (let dz = -VIEW_CHUNKS; dz <= VIEW_CHUNKS; dz++) {
+      const k = (ccx + dx) + ',' + (ccz + dz); want.add(k);
+      if (!chunks.has(k)) chunks.set(k, buildChunk(ccx + dx, ccz + dz));
+    }
+  for (const [k, m] of chunks) if (!want.has(k)) { scene.remove(m); m.traverse(o => o.geometry && o.geometry.dispose()); chunks.delete(k); }
+  if (cellCache.size > 20000) cellCache.clear();
+  if (currentLevel === 'pool') {                              // rebuild the Water plane only when the loaded set changed
+    const sig = [...chunks.keys()].sort().join('|');
+    if (sig !== waterChunkSig) { waterChunkSig = sig; rebuildPoolWater(); }
+  }
+}
+function nearMeshes(px, pz) {
+  const ccx = Math.floor(px / (CELL * CHUNK)), ccz = Math.floor(pz / (CELL * CHUNK)), out = [];
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+    const m = chunks.get((ccx + dx) + ',' + (ccz + dz)); if (m) out.push(m);
+  }
+  return out;
+}
+
+// circle-vs-AABB collision on the XZ plane (only boxes that reach body height)
+function collide(pos, r) {
+  const ci = Math.floor(pos.x / CELL), cj = Math.floor(pos.z / CELL);
+  for (let pass = 0; pass < 2; pass++)
+    for (let i = ci - 2; i <= ci + 1; i++)
+      for (let j = cj - 2; j <= cj + 1; j++)
+        for (const b of cellBoxes(i, j)) {
+          if (b[2] > 1.5) continue;
+          const qx = Math.max(b[0], Math.min(pos.x, b[1])), qz = Math.max(b[4], Math.min(pos.z, b[5]));
+          const dx = pos.x - qx, dz = pos.z - qz, d2 = dx * dx + dz * dz;
+          if (d2 < r * r) {
+            if (d2 > 1e-8) { const d = Math.sqrt(d2), push = (r - d) / d; pos.x += dx * push; pos.z += dz * push; }
+            else { pos.x += r; }
+          }
+        }
+}
+
+// ---------- character ----------
+function makeCharacter() {
+  const g = new THREE.Group();
+  const M = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 });
+  const hoodie = M('#3b4049'), jeans = M('#2c3a57'), shoe = M('#1b1b1d'), skin = M('#d9a27e'), hair = M('#2a1d14');
+  const box = (w, h, d, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+  const torso = box(0.46, 0.62, 0.26, hoodie); torso.position.y = 1.16; g.add(torso);
+  const hood = box(0.36, 0.1, 0.22, hoodie); hood.position.set(0, 1.5, -0.06); g.add(hood);
+  const faceMat = new THREE.MeshStandardMaterial({ color: '#d9a27e', roughness: 0.8 });
+  const headMats = [skin, skin, hair, skin, faceMat, hair]; // +x -x +y -y +z(front) -z(back)
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.36, 0.32), headMats);
+  head.position.y = 1.66; g.add(head);
+  const eyes = new THREE.Group();
+  for (const s of [-1, 1]) { const e = box(0.05, 0.05, 0.01, M('#1a1410')); e.position.set(s * 0.075, 0.03, 0.161); eyes.add(e); }
+  const mouth = box(0.1, 0.02, 0.01, M('#6e3b2c')); mouth.position.set(0, -0.08, 0.161); eyes.add(mouth);
+  head.add(eyes);
+  const limb = (w, h, m, footM) => {
+    const pivot = new THREE.Group(); const l = box(w, h, w, m); l.position.y = -h / 2; pivot.add(l);
+    if (footM) { const f = box(w + 0.02, 0.08, w + 0.12, footM); f.position.set(0, -h + 0.04, 0.05); pivot.add(f); }
+    return pivot;
+  };
+  const legL = limb(0.18, 0.84, jeans, shoe), legR = limb(0.18, 0.84, jeans, shoe);
+  legL.position.set(-0.12, 0.86, 0); legR.position.set(0.12, 0.86, 0); g.add(legL, legR);
+  const armL = limb(0.13, 0.6, hoodie, null), armR = limb(0.13, 0.6, hoodie, null);
+  for (const a of [armL, armR]) { const hnd = box(0.11, 0.11, 0.11, skin); hnd.position.y = -0.64; a.add(hnd); }
+  armL.position.set(-0.3, 1.44, 0); armR.position.set(0.3, 1.44, 0); g.add(armL, armR);
+  g.userData = { legL, legR, armL, armR, head, faceMat, eyes, torso };
+  return g;
+}
+const hero = makeCharacter();
+scene.add(hero);
+hero.scale.setScalar(0.9);   // a bit shorter
+
+// ---------- entity ----------
+function makeEntity() {
+  const g = new THREE.Group();
+  const black = new THREE.MeshBasicMaterial({ color: '#050403' });
+  const box = (w, h, d, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), black); m.position.set(x, y, z); g.add(m); return m; };
+  box(0.34, 1.0, 0.16, 0, 1.75, 0);            // torso
+  box(0.24, 0.34, 0.24, 0, 2.42, 0.02);        // head
+  box(0.07, 1.25, 0.07, -0.25, 1.55, 0);       // long arms
+  box(0.07, 1.25, 0.07, 0.25, 1.55, 0);
+  box(0.09, 1.25, 0.09, -0.1, 0.62, 0);        // legs
+  box(0.09, 1.25, 0.09, 0.1, 0.62, 0);
+  const eyeM = new THREE.MeshBasicMaterial({ color: '#ffffff', fog: false });
+  for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.02, 0.01), eyeM); e.position.set(s * 0.06, 2.45, 0.135); g.add(e); }
+  g.visible = false;
+  return g;
+}
+const entity = makeEntity();
+scene.add(entity);
+
+// ---------- post (VHS) ----------
+let rt = new THREE.WebGLRenderTarget(16, 16, { type: THREE.HalfFloatType });
+const post = new THREE.ShaderMaterial({
+  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, res: { value: new THREE.Vector2() }, glitch: { value: 0 }, vhs: { value: 1 }, dark: { value: 0 }, screenfit: { value: 0 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float time, glitch, vhs, dark, screenfit; uniform vec2 res; varying vec2 vUv;
+    float rnd(vec2 c){ return fract(sin(dot(c, vec2(12.9898,78.233))) * 43758.5453); }
+    void main(){
+      vec2 cc = vUv - 0.5;
+      vec2 uv = 0.5 + cc * (1.0 + 0.10 * vhs * (1.0 - 0.85 * screenfit) * dot(cc, cc));
+      float line = floor(uv.y * res.y * 0.5);
+      float wob = (rnd(vec2(line, floor(time * 30.0))) - 0.5) * 0.0018 * vhs;
+      wob += sin(uv.y * 9.0 + time * 1.3) * 0.0012 * vhs;
+      float bandRow = floor(uv.y * 36.0);
+      float band = step(0.992 - glitch * 0.35, rnd(vec2(bandRow, floor(time * 18.0))));
+      wob += band * (rnd(vec2(bandRow, time)) - 0.5) * (0.03 + 0.12 * glitch);
+      float roll = fract(time * 0.07);
+      float rollBar = smoothstep(0.0, 0.015, abs(uv.y - roll)) ;
+      uv.x += wob + (1.0 - rollBar) * 0.004 * vhs;
+      float ca = (0.0019 + 0.007 * glitch) * vhs + 0.0006;
+      vec3 col;
+      col.r = texture2D(tDiffuse, uv + vec2(ca, 0.0)).r;
+      col.g = texture2D(tDiffuse, uv).g;
+      col.b = texture2D(tDiffuse, uv - vec2(ca, 0.0)).b;
+      col = col * 1.12 / (1.0 + col * 0.3);              // soft tone curve
+      col = pow(max(col, 0.0), vec3(1.0 / 2.2));          // linear -> sRGB
+      col = mix(col, col * vec3(1.07, 1.0, 0.83), 0.74 * vhs); // warm cheap-camcorder grade
+      float lum = dot(col, vec3(0.299, 0.587, 0.114));
+      col = mix(vec3(lum), col, 1.0 + 0.08 * vhs);         // a bit desaturated
+      col += (rnd(uv * res + fract(time) * 100.0) - 0.5) * (0.105 + 0.28 * glitch) * vhs;
+      col *= (0.89 + 0.11 * sin(uv.y * res.y * 3.14159)) + 0.08 * screenfit;
+      col *= mix(1.0, 0.82, (1.0 - rollBar) * vhs);
+      float vig = smoothstep(0.95, 0.35, length(cc * vec2(1.0, 1.15)) * (1.0 + 0.2 * vhs));
+      col *= mix(vig, 0.5 + 0.5 * vig, screenfit);          // ease the dark edges when filmed off a screen
+      col = col * (1.0 + 0.22 * screenfit) + 0.02 * screenfit; // lift brightness to survive a camera + room light
+      col *= 1.0 - dark;
+      if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) col = vec3(0.0);
+      gl_FragColor = vec4(col, 1.0);
+    }`,
+  depthTest: false, depthWrite: false,
+});
+const postScene = new THREE.Scene();
+const postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), post));
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  const s = 0.75; // render a little low-res for camcorder softness
+  rt.setSize(Math.round(w * s), Math.round(h * s));
+  post.uniforms.res.value.set(w * s, h * s);
+}
+addEventListener('resize', resize); resize();
+
+// ---------- audio (local only) ----------
+let audio = null;
+function toggleHum() {
+  if (!audio) {
+    const ctx = new AudioContext(), gain = ctx.createGain(); gain.gain.value = 0;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+    for (const [f, a] of [[120, .5], [240, .25], [360, .12], [1200, .02]]) {
+      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f + Math.random() * .3;
+      const g = ctx.createGain(); g.gain.value = a; o.connect(g).connect(lp); o.start();
+    }
+    lp.connect(gain).connect(ctx.destination);
+    audio = { ctx, gain, on: false };
+  }
+  audio.on = !audio.on;
+  audio.gain.gain.setTargetAtTime(audio.on ? 0.05 : 0, audio.ctx.currentTime, 0.2);
+  toast(audio.on ? 'hum on' : 'hum off');
+}
+
+// ---------- webcam face ----------
+let faceStream = null;
+async function toggleFace() {
+  const fm = hero.userData.faceMat;
+  if (faceStream) {
+    faceStream.getTracks().forEach(t => t.stop()); faceStream = null;
+    fm.map = null; fm.emissiveMap = null; fm.emissive.set('#000'); fm.color.set('#d9a27e'); fm.needsUpdate = true;
+    hero.userData.eyes.visible = true; toast('face off'); return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+    const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.srcObject = stream; await v.play();
+    const tex = new THREE.VideoTexture(v); tex.colorSpace = THREE.SRGBColorSpace;
+    const ar = (v.videoWidth || 640) / (v.videoHeight || 480);
+    const zoom = 0.78; tex.repeat.set(zoom / ar, zoom); tex.offset.set((1 - zoom / ar) / 2, (1 - zoom) / 2 + 0.03);
+    fm.map = tex; fm.color.set('#ffffff'); fm.emissiveMap = tex; fm.emissive.set('#555'); fm.needsUpdate = true;
+    hero.userData.eyes.visible = false; faceStream = stream;
+    toast('face on — ' + stream.getVideoTracks()[0].label);
+    if (mode === 'fp') setMode('selfie');
+  } catch (e) { toast('webcam failed: ' + e.message); }
+}
+
+// ---------- input ----------
+const keys = new Set();
+const player = { pos: new THREE.Vector3(CELL / 2, 0, CELL / 2), yaw: Math.PI * 0.25, pitch: -0.05, vel: new THREE.Vector3(), phase: 0, facing: Math.PI * 0.25 + Math.PI, speed: 0 };
+const MODES = ['tp', 'selfie', 'fp'];
+const MODE_NAMES = { tp: '3RD PERSON', selfie: 'SELFIE', fp: 'POV' };
+let mode = MODES.includes(params.get('mode')) ? params.get('mode') : 'fp';
+let vhsOn = params.get('vhs') === '1'; // VHS/glitch effect off by default; add ?vhs=1 or press V for it
+let screenFit = params.get('screen') === '1';
+const hud = document.getElementById('hud'), help = document.getElementById('help');
+if (params.get('ui') !== '1') hud.classList.add('hidden');     // no REC/timestamp/battery overlay by default
+function applyScreenFit() { document.body.classList.toggle('screenfit', screenFit); }
+if (params.get('help') !== '1') help.classList.add('hidden'); // no instructions panel by default (press H to show)
+function setMode(m) { mode = m; document.getElementById('mode').textContent = MODE_NAMES[m]; }
+applyScreenFit();
+setMode(mode);
+let toastT = 0;
+function toast(s) { const t = document.getElementById('toast'); t.textContent = s; t.style.opacity = 1; toastT = 2.2; }
+
+renderer.domElement.addEventListener('click', () => { renderer.domElement.requestPointerLock?.(); });
+help.addEventListener('click', () => { renderer.domElement.requestPointerLock?.(); });
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement) help.classList.add('hidden');
+});
+addEventListener('mousemove', e => {
+  if (document.pointerLockElement !== renderer.domElement) return;
+  player.yaw -= e.movementX * 0.0022;
+  player.pitch = THREE.MathUtils.clamp(player.pitch - e.movementY * 0.0022, -1.2, 1.2);
+});
+addEventListener('keydown', e => {
+  keys.add(e.code);
+  switch (e.code) {
+    case 'KeyC': setMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length]); break;
+    case 'KeyF': toggleFace(); break;
+    case 'KeyE': toggleEntity(); break;
+    case 'KeyQ': lightsFail(); break;
+    case 'KeyM': toggleHum(); break;
+    case 'KeyV': vhsOn = !vhsOn; toast(vhsOn ? 'VHS on' : 'VHS off'); break;
+    case 'KeyG': screenFit = !screenFit; applyScreenFit(); toast(screenFit ? 'screen-film mode on' : 'screen-film mode off'); break;
+    case 'KeyP': setLevel(LEVEL_ORDER[(LEVEL_ORDER.indexOf(currentLevel) + 1) % LEVEL_ORDER.length]); toast(LV.name); break;
+    case 'KeyU': hud.classList.toggle('hidden'); break;
+    case 'KeyH': help.classList.toggle('hidden'); break;
+  }
+});
+addEventListener('keyup', e => keys.delete(e.code));
+addEventListener('blur', () => keys.clear());
+
+// ---------- events ----------
+let glitchPulse = 0, darkness = 0, blackout = null;
+function lightsFail() { if (!blackout) blackout = { t: 0 }; }
+const ray = new THREE.Raycaster();
+function freeDistance(origin, dir, max) {
+  ray.set(origin, dir); ray.far = max;
+  const hit = ray.intersectObjects(nearMeshes(origin.x, origin.z), true)[0];
+  return hit ? hit.distance : max;
+}
+function toggleEntity() {
+  if (entity.visible) { entity.visible = false; glitchPulse = 0.8; return; }
+  const origin = new THREE.Vector3(player.pos.x, 1.4, player.pos.z);
+  let best = null;
+  for (const off of [0, 0.35, -0.35, 0.7, -0.7, Math.PI]) {
+    const a = (mode === 'selfie' ? player.yaw + Math.PI : player.yaw) + off;
+    const dir = new THREE.Vector3(-Math.sin(a), 0, -Math.cos(a));
+    const d = freeDistance(origin, dir, 24);
+    if (!best || d > best.d) best = { d, dir };
+    if (d > 12) break;
+  }
+  const dist = Math.max(3, Math.min(best.d - 1, 20));
+  entity.position.set(player.pos.x + best.dir.x * dist, 0, player.pos.z + best.dir.z * dist);
+  entity.visible = true; entity.userData.t = 0; glitchPulse = 0.6;
+}
+
+// ---------- HUD clock ----------
+const t0 = performance.now();
+const MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+function pad(n) { return String(n).padStart(2, '0'); }
+function updateHud() {
+  const d = new Date();
+  let h = d.getHours(); const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+  document.getElementById('stamp').textContent = `${ap} ${h}:${pad(d.getMinutes())}  ${MON[d.getMonth()]}. ${pad(d.getDate())} ${d.getFullYear()}`;
+  const s = Math.floor((performance.now() - t0) / 1000);
+  document.getElementById('counter').textContent = `SP ${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
+}
+
+// ---------- main loop ----------
+const tmp = new THREE.Vector3(), head = new THREE.Vector3();
+let last = performance.now(), hudT = 0;
+function frame(now) {
+  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now;
+  const time = now / 1000;
+  const xr = renderer.xr.isPresenting;   // true while a VR headset session is active
+
+  // turning with arrow keys
+  if (keys.has('ArrowLeft')) player.yaw += 2.2 * dt;
+  if (keys.has('ArrowRight')) player.yaw -= 2.2 * dt;
+  if (keys.has('ArrowUp')) player.pitch = Math.min(1.2, player.pitch + 1.5 * dt);
+  if (keys.has('ArrowDown')) player.pitch = Math.max(-1.2, player.pitch - 1.5 * dt);
+
+  // movement relative to view yaw
+  const fwd = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+  const right = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
+  const wish = new THREE.Vector3();
+  if (keys.has('KeyW')) wish.add(fwd);
+  if (keys.has('KeyS')) wish.sub(fwd);
+  if (keys.has('KeyD')) wish.add(right);
+  if (keys.has('KeyA')) wish.sub(right);
+  if (xr) {  // VR: left thumbstick walks (in the direction you're looking), right thumbstick turns
+    const sess = renderer.xr.getSession(); let mx = 0, my = 0, tx = 0;
+    if (sess) for (const src of sess.inputSources) {
+      const gp = src.gamepad; if (!gp || !gp.axes) continue;
+      const a = gp.axes, ax = a.length > 2 ? a[2] : (a[0] || 0), ay = a.length > 3 ? a[3] : (a[1] || 0);
+      if (src.handedness === 'right') tx += ax; else { mx += ax; my += ay; }
+    }
+    if (Math.abs(tx) > 0.2) dolly.rotation.y -= tx * 2.0 * dt;
+    if (Math.hypot(mx, my) > 0.15) { const cd = new THREE.Vector3(); camera.getWorldDirection(cd); cd.y = 0; cd.normalize(); const cr = new THREE.Vector3(cd.z, 0, -cd.x); wish.addScaledVector(cd, -my).addScaledVector(cr, mx); }
+  }
+  const running = keys.has('ShiftLeft') || keys.has('ShiftRight');
+  if (wish.lengthSq() > 0) wish.normalize().multiplyScalar(running ? 4.6 : 2.2);
+  player.vel.lerp(wish, 1 - Math.exp(-10 * dt));
+  player.pos.addScaledVector(player.vel, dt);
+  collide(player.pos, 0.38);
+  const speed = Math.hypot(player.vel.x, player.vel.z);
+  player.speed = speed;
+  player.phase += speed * dt * 2.6;
+
+  updateChunks(player.pos.x, player.pos.z);
+  const snap = v => Math.round(v / CELL) * CELL;
+  floor.position.set(snap(player.pos.x), 0, snap(player.pos.z));
+  ceil.position.set(snap(player.pos.x), WALL_H, snap(player.pos.z));
+
+  // lights
+  const ci = Math.floor(player.pos.x / CELL), cj = Math.floor(player.pos.z / CELL);
+  let li = 0, globalLight = 1;
+  if (blackout) {
+    blackout.t += dt; const t = blackout.t;
+    if (t < 1.1) globalLight = Math.random() < 0.45 ? 0.05 : 1;
+    else if (t < 3.4) globalLight = 0.0;
+    else if (t < 4.2) globalLight = Math.random() < 0.5 ? 0.1 : 1;
+    else blackout = null;
+  }
+  if (LV.fixtureLights) {
+    // REALISTIC light physics: pin real point lights onto the nearest rare ceiling fixtures. Each light
+    // sits ON its fixture (not on the camera), so it lights the surrounding walls/floor/ceiling with true
+    // inverse-square falloff and looks identical whether you're near or far — no brightening as you approach.
+    const R = 7, found = [], seed = LV.fixtureSeed ?? 70, rate = LV.fixtureRate ?? 0.11;
+    for (let di = -R; di <= R; di++) for (let dj = -R; dj <= R; dj++) {
+      const i = ci + di, j = cj + dj;
+      if (hash(i, j, seed) >= rate) continue;
+      if (currentLevel === 'level2' && !isOpen2(i, j)) continue;
+      const lx = i * CELL + CELL / 2, lz = j * CELL + CELL / 2;
+      found.push([(lx - player.pos.x) ** 2 + (lz - player.pos.z) ** 2, lx, lz, i, j]);
+    }
+    found.sort((a, b) => a[0] - b[0]);
+    const n = Math.min(found.length, LIGHTS.length);
+    for (; li < n; li++) {
+      const fx = found[li], l = LIGHTS[li];
+      l.position.set(fx[1], WALL_H - 0.14, fx[2]);
+      l.distance = LV.lightDist; l.decay = LV.lightDecay; l.color.set(LV.lightCol);
+      let f = 1;
+      if (hash(fx[3], fx[4], 21) < (LV.flickRate || 0.1)) { const nn = Math.sin(time * 22 + fx[3] * 4.1) + Math.sin(time * 9.3 + fx[4] * 2.7); if (nn > 1.55 || Math.random() < 0.02) f = 0.2; }
+      l.intensity = LV.light * globalLight * f;
+    }
+  } else if (LV.poolLights) {
+    // teal light rising off the water: pin point lights just above the nearest pools so the columns,
+    // walls and ceiling near the water catch the cyan glow (the Escape-the-Backrooms Poolrooms cast).
+    const R = 6, found = [];
+    for (let di = -R; di <= R; di++) for (let dj = -R; dj <= R; dj++) {
+      const i = ci + di, j = cj + dj;
+      if (isDeep(i, j)) { const lx = i * CELL + CELL / 2, lz = j * CELL + CELL / 2; found.push([(lx - player.pos.x) ** 2 + (lz - player.pos.z) ** 2, lx, lz]); }
+    }
+    found.sort((a, b) => a[0] - b[0]);
+    const n = Math.min(found.length, LIGHTS.length);
+    for (; li < n; li++) {
+      const fx = found[li], l = LIGHTS[li];
+      l.position.set(fx[1], POOL_WATER + 0.5, fx[2]);
+      l.distance = LV.lightDist; l.decay = LV.lightDecay; l.color.set(LV.lightCol);
+      l.intensity = LV.light * globalLight;
+    }
+  } else {
+    const LR = LV.lightRadius || 1;    // other levels: a small grid of lights around the player (off when LV.light is 0)
+    for (let di = -LR; di <= LR; di++) for (let dj = -LR; dj <= LR; dj++) {
+      const i = ci + di, j = cj + dj, l = LIGHTS[li++];
+      l.position.set(i * CELL + CELL / 2, WALL_H - 0.15, j * CELL + CELL / 2);
+      let f = 1;
+      if (hash(i, j, 21) < (LV.flickRate || 0.1)) { const n = Math.sin(time * 22 + i * 4.1) + Math.sin(time * 9.3 + j * 2.7); if (n > 1.55 || Math.random() < 0.02) f = 0.2; }
+      l.intensity = LV.light * globalLight * f;
+    }
+  }
+  for (; li < LIGHTS.length; li++) LIGHTS[li].intensity = 0;  // switch off any lights not used this frame
+  hemi.intensity = LV.hemi * globalLight + 0.02;
+  ambient.intensity = LV.amb * globalLight + 0.015;
+  ceilMat.emissiveIntensity = LV.emissive * globalLight;
+  scene.fog.color.copy(LV.fog).multiplyScalar(0.08 + 0.92 * globalLight);
+  scene.background = scene.fog.color;
+  if (currentLevel === 'pool') {
+    poolWater.material.uniforms.time.value += dt * 0.6;                 // three.js Water animates its own ripples + reflection
+    poolCausticTex.offset.set(time * 0.02 % 1, time * 0.045 % 1);       // caustics drifting on the pool bottom
+  } else if (currentLevel === 'level7') {
+    oceanWater.material.uniforms.time.value += dt * 0.4;                // slow ocean swell
+    oceanWater.position.x = Math.round(player.pos.x / CELL) * CELL;     // the big plane follows the player so the sea reaches the horizon everywhere
+    oceanWater.position.z = Math.round(player.pos.z / CELL) * CELL;
+    sun.position.set(player.pos.x + sunPos.x * 220, sunPos.y * 220, player.pos.z + sunPos.z * 220); // keep the shadow frustum over the player
+    sun.target.position.set(player.pos.x, 0, player.pos.z); sun.target.updateMatrixWorld();
+  }
+
+  // character pose
+  const ud = hero.userData;
+  hero.position.copy(player.pos);
+  if (mode === 'selfie' || mode === 'fp') player.facing = player.yaw + Math.PI;
+  else if (speed > 0.3) {
+    const target = Math.atan2(player.vel.x, player.vel.z);
+    let d = target - player.facing; d = Math.atan2(Math.sin(d), Math.cos(d));
+    player.facing += d * (1 - Math.exp(-12 * dt));
+  }
+  hero.rotation.y = player.facing;
+  const swing = Math.sin(player.phase) * Math.min(1, speed / 2.2) * (running ? 0.85 : 0.6);
+  ud.legL.rotation.x = swing; ud.legR.rotation.x = -swing;
+  ud.armL.rotation.x = -swing * 0.8; ud.armR.rotation.x = swing * 0.8;
+  const bob = Math.abs(Math.sin(player.phase)) * 0.04 * Math.min(1, speed / 2);
+  hero.position.y = bob;
+  ud.torso.rotation.x = running && speed > 3 ? 0.12 : 0;
+  ud.head.rotation.y = Math.sin(time * 0.4) * 0.05;
+  if (mode === 'selfie') { ud.armR.rotation.x = -1.35; ud.armR.rotation.z = 0.15; } else ud.armR.rotation.z = 0;
+  hero.visible = mode !== 'fp';
+
+  // camera
+  const shake = vhsOn ? 1 : 0.3;
+  // slower, lower-amplitude drift = calmer and more natural handheld feel
+  const handX = (Math.sin(time * 0.85) * 0.65 + Math.sin(time * 1.6) * 0.35) * 0.0072 * shake;
+  const handY = (Math.sin(time * 1.05) * 0.55 + Math.sin(time * 0.65) * 0.45) * 0.0072 * shake;
+  head.set(player.pos.x, 1.46, player.pos.z);
+  if (xr) {
+    dolly.position.set(player.pos.x, 0, player.pos.z);   // move the rig; the headset provides eye height + head rotation
+  } else if (mode === 'fp') {
+    camera.position.set(player.pos.x, 1.48 + Math.sin(player.phase * 2) * 0.022 * Math.min(1, speed / 2), player.pos.z);
+    camera.rotation.set(player.pitch + handY, player.yaw + handX, Math.sin(player.phase) * 0.007 * Math.min(1, speed / 2));
+  } else {
+    const back = mode === 'tp' ? fwd.clone().negate() : fwd.clone();
+    const dist = mode === 'tp' ? 3.0 : 1.6;
+    const pitch = mode === 'tp' ? THREE.MathUtils.clamp(player.pitch, -0.6, 0.9) : THREE.MathUtils.clamp(player.pitch, -0.5, 0.5);
+    tmp.copy(back).multiplyScalar(Math.cos(pitch)).setY(mode === 'tp' ? Math.sin(-pitch) * 0.9 + 0.35 : Math.sin(pitch) * 0.4 + 0.05).normalize();
+    const free = freeDistance(head, tmp, dist + 0.3);
+    const d = Math.max(0.4, Math.min(dist, free - 0.3));
+    camera.position.copy(head).addScaledVector(tmp, d);
+    camera.position.y = Math.min(camera.position.y, WALL_H - 0.2);
+    if (mode === 'tp') camera.position.addScaledVector(right, 0.35 * d / dist);
+    camera.lookAt(head.x, head.y + (mode === 'selfie' ? 0.02 : 0.05), head.z);
+    camera.rotation.x += handY; camera.rotation.y += handX;
+  }
+
+  // entity: stares, creeps closer, vanishes in a burst when it reaches you
+  let near = 0;
+  if (entity.visible) {
+    entity.userData.t += dt;
+    entity.lookAt(player.pos.x, 0, player.pos.z);
+    tmp.set(player.pos.x - entity.position.x, 0, player.pos.z - entity.position.z);
+    const dd = tmp.length();
+    const creep = entity.userData.t > 2.5 ? (dd < 8 ? 1.6 : 0.9) : 0;
+    entity.position.addScaledVector(tmp.normalize(), creep * dt);
+    entity.position.y = Math.sin(time * 13) * 0.01;
+    near = THREE.MathUtils.clamp(1 - (dd - 1.5) / 10, 0, 1);
+    if (dd < 1.3) { entity.visible = false; glitchPulse = 1.4; blackout = { t: 2.6 }; }
+  }
+  glitchPulse = Math.max(0, glitchPulse - dt * 1.3);
+
+  // render
+  renderer.setRenderTarget(null); renderer.render(scene, camera);   // clean render; THREE.Water does its reflection pass in onBeforeRender
+
+  hudT -= dt; if (hudT <= 0) { updateHud(); hudT = 0.25; }
+  if (toastT > 0) { toastT -= dt; if (toastT <= 0) document.getElementById('toast').style.opacity = 0; }
+}
+setLevel(LEVELS[params.get('level')] ? params.get('level') : 'level0'); // set materials/lighting/fog before the first frame
+renderer.setAnimationLoop(frame);   // drives both the normal page and the VR headset session
+
+// for automated screenshots: ?entity=1 spawns one immediately
+if (params.get('entity') === '1') setTimeout(toggleEntity, 50);
+</script>
+</body>
+</html>
