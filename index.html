@@ -352,14 +352,15 @@ carpetTex.repeat.set(PLANE / CELL, PLANE / CELL);
 ceilTex.repeat.set(PLANE / CELL, PLANE / CELL);
 ceilEmit.repeat.copy(ceilTex.repeat);
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(PLANE, PLANE), floorMat);
-floor.rotation.x = -Math.PI / 2; scene.add(floor);
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
 const ceil = new THREE.Mesh(new THREE.PlaneGeometry(PLANE, PLANE), ceilMat);
-ceil.rotation.x = Math.PI / 2; ceil.position.y = WALL_H; scene.add(ceil);
+ceil.rotation.x = Math.PI / 2; ceil.position.y = WALL_H; ceil.receiveShadow = true; scene.add(ceil);
 
 // point lights that hop to the panels nearest the player
 const LIGHTS = [];
-for (let i = 0; i < 9; i++) {   // a 3x3 block of ceiling lights around the player (every light here is paid for by the shader on every level, so keep it small)
+for (let i = 0; i < 9; i++) {   // ceiling lights around the player; the nearest 3 cast real shadows
   const l = new THREE.PointLight('#fff1c8', 7, 14, 1.15);
+  if (i < 3) { l.castShadow = true; l.shadow.mapSize.set(1024, 1024); l.shadow.camera.near = 0.2; l.shadow.camera.far = 26; l.shadow.bias = -0.0022; l.shadow.normalBias = 0.05; }
   scene.add(l); LIGHTS.push(l);
 }
 const sun = new THREE.DirectionalLight('#ffe7c2', 0); // warm "sunlight" for the Poolrooms (off in Level 0); also the Level 7 sun
@@ -730,6 +731,7 @@ function buildChunk(cx, cz) {
       }
     }
   }
+  group.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });  // real shadows on walls/pipes/columns/houses
   scene.add(group);
   return group;
 }
