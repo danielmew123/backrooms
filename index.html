@@ -389,22 +389,22 @@ const LEVELS = {
   level0: {
     name: 'LEVEL 0', ceil: ceilTex, ceilEmit: ceilEmit,
     fog: new THREE.Color('#b1a978'), fogNear: 6, fogFar: 40,          // paler, grayer haze (muted like the real Level 0 photo)
-    hemiSky: '#e4e0c2', hemiGround: '#7c7452', hemi: 0.62, ambCol: '#d8cfab', amb: 0.4, // low flat fill so the real fixtures' falloff actually shows (bounce/skylight only)
+    hemiSky: '#e4e0c2', hemiGround: '#7c7452', hemi: 0.16, ambCol: '#d8cfab', amb: 0.09, // low flat fill so the real fixtures' falloff actually shows (bounce/skylight only)
     lightCol: '#fff2d2', light: 7.5, lightDist: 16, lightDecay: 2, sun: 0, flickRate: 0.03,  // REAL fluorescent fixtures: point lights with physical inverse-square falloff
     fixtureLights: true, fixtureSeed: 71, fixtureRate: 0.16, fixtureGeo: stripGeo, fixtureMat: stripMat, fixtureY: WALL_H - 0.03,  // sparse: a working fluorescent tube only every so often
-    emissiveCol: '#fff6d8', emissive: 0, water: false, env: 0.28,
+    emissiveCol: '#fff6d8', emissive: 0, water: false, env: 0.1,
   },
   pool: {
     name: 'POOLROOMS', floorNormal: poolNormalTex, ceil: poolCeilTex, ceilEmit: poolCeilEmit,
     fog: new THREE.Color('#383d3e'), fogNear: 5, fogFar: 32,           // dim, cool neutral haze — moody rooms where the glowing water is the brightest thing
-    hemiSky: '#555854', hemiGround: '#282a25', hemi: 0.32, ambCol: '#484a44', amb: 0.24,
+    hemiSky: '#555854', hemiGround: '#282a25', hemi: 0.17, ambCol: '#484a44', amb: 0.1,
     lightCol: '#2fd2e6', light: 8, lightDist: 14, lightDecay: 2, sun: 0, poolLights: true,  // teal light cast off the water onto the nearby columns/walls
     emissiveCol: '#fff3d6', emissive: 0.72, water: true, env: 0.22,
   },
   level2: {
     name: 'LEVEL 2 — PIPE DREAMS', ceil: concCeilTex, ceilEmit: null,
     fog: new THREE.Color('#17150d'), fogNear: 4, fogFar: 30,           // dark murk — long unlit stretches between the rare lights
-    hemiSky: '#343022', ambCol: '#302c1e', hemiGround: '#1a170e', hemi: 0.55, amb: 0.42,  // low fill so the real light pools stand out; still enough to see the halls between lights
+    hemiSky: '#343022', ambCol: '#302c1e', hemiGround: '#1a170e', hemi: 0.3, amb: 0.16,  // low fill so the real light pools stand out; still enough to see the halls between lights
     lightCol: '#ffd9a0', light: 30, lightDist: 20, lightDecay: 2, sun: 0, fixtureLights: true, fixtureSeed: 70, fixtureRate: 0.11, fixtureGeo: bulbGeo, fixtureMat: bulbMat, fixtureY: WALL_H - 0.05,  // real point lights pinned to the rare fixtures — physical inverse-square falloff, identical near and far
     emissiveCol: '#000000', emissive: 0, water: false, concrete: true, flickRate: 0.05, env: 0.22,
   },
