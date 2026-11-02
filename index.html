@@ -285,7 +285,7 @@ const isHouse7 = (i, j) => Math.abs(i) > 1 || Math.abs(j) > 1 ? hash(i, j, 77) <
 
 // ---------- renderer / scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5)); // cap render resolution — full Retina/2x is a big GPU cost (esp. in VR) for little visible gain
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25)); // cap render resolution — full Retina/2x is a big GPU cost (esp. in VR, rendered twice) for little visible gain
 renderer.toneMapping = THREE.ACESFilmicToneMapping;   // filmic highlight rolloff instead of harsh clipping -> more realistic light response
 renderer.toneMappingExposure = 1.15;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;  // soft shadows (used on Level 7)
@@ -314,7 +314,7 @@ renderer.xr.addEventListener('sessionend', () => { dolly.position.set(0, 0, 0); 
 // It renders a real mirror reflection of the room + a moving normal-map ripple + a warm sun glint.
 poolNormalTex.wrapS = poolNormalTex.wrapT = THREE.RepeatWrapping;
 const poolWater = new Water(new THREE.BufferGeometry(), {
-  textureWidth: 512, textureHeight: 512,
+  textureWidth: 256, textureHeight: 256,   // pool mirror reflection is an extra full-scene pass per frame; 256 is plenty for rippled water and ~4x cheaper than 512
   waterNormals: poolNormalTex,
   sunDirection: new THREE.Vector3(0.25, 1.0, 0.1).normalize(),
   sunColor: 0xd6fbff, waterColor: 0x15929f, distortionScale: 2.2, fog: true, alpha: 0.66,  // luminous teal pool water (Escape-the-Backrooms Poolrooms look)
@@ -360,7 +360,9 @@ ceil.rotation.x = Math.PI / 2; ceil.position.y = WALL_H; ceil.receiveShadow = tr
 const LIGHTS = [];
 for (let i = 0; i < 9; i++) {   // ceiling lights around the player; the nearest 3 cast real shadows
   const l = new THREE.PointLight('#fff1c8', 7, 14, 1.15);
-  if (i < 1) { l.castShadow = true; l.shadow.mapSize.set(512, 512); l.shadow.camera.near = 0.2; l.shadow.camera.far = 26; l.shadow.bias = -0.0022; l.shadow.normalBias = 0.05; } // only the single nearest fixture casts a (cube-map) shadow — each one is 6 full-scene passes/frame, so 3 was the main source of lag
+  // Fixture point lights no longer cast shadows: a point-light shadow is a cube map = 6 full-scene passes
+  // EVERY frame (the light follows you), which is brutal on the Quest's mobile GPU. Only the Level 7 sun
+  // (a single cheap directional shadow) casts. Indoor depth now comes from falloff + fog instead.
   scene.add(l); LIGHTS.push(l);
 }
 const sun = new THREE.DirectionalLight('#ffe7c2', 0); // warm "sunlight" for the Poolrooms (off in Level 0); also the Level 7 sun
@@ -398,7 +400,7 @@ const LEVELS = {
     name: 'POOLROOMS', floorNormal: poolNormalTex, ceil: poolCeilTex, ceilEmit: poolCeilEmit,
     fog: new THREE.Color('#383d3e'), fogNear: 5, fogFar: 32,           // dim, cool neutral haze — moody rooms where the glowing water is the brightest thing
     hemiSky: '#555854', hemiGround: '#282a25', hemi: 0.17, ambCol: '#484a44', amb: 0.1,
-    lightCol: '#2fd2e6', light: 8, lightDist: 14, lightDecay: 2, sun: 0, poolLights: true,  // teal light cast off the water onto the nearby columns/walls
+    lightCol: '#2fd2e6', light: 8, lightDist: 14, lightDecay: 2, sun: 0, poolLights: true, poolLightRate: 0.4,  // only ~40% of pools emit a teal light (fewer light sources = less frequent glow + cheaper); the rest are lit only by their emissive basin
     emissiveCol: '#fff3d6', emissive: 0.72, water: true, env: 0.22,
   },
   level2: {
@@ -1116,10 +1118,10 @@ function frame(now) {
   } else if (LV.poolLights) {
     // teal light rising off the water: pin point lights just above the nearest pools so the columns,
     // walls and ceiling near the water catch the cyan glow (the Escape-the-Backrooms Poolrooms cast).
-    const R = 6, found = [];
+    const R = 6, found = [], plr = LV.poolLightRate ?? 1;
     for (let di = -R; di <= R; di++) for (let dj = -R; dj <= R; dj++) {
       const i = ci + di, j = cj + dj;
-      if (isDeep(i, j)) { const lx = i * CELL + CELL / 2, lz = j * CELL + CELL / 2; found.push([(lx - player.pos.x) ** 2 + (lz - player.pos.z) ** 2, lx, lz]); }
+      if (isDeep(i, j) && hash(i, j, 88) < plr) { const lx = i * CELL + CELL / 2, lz = j * CELL + CELL / 2; found.push([(lx - player.pos.x) ** 2 + (lz - player.pos.z) ** 2, lx, lz]); }  // only some pools get a light, so the glow is sparser
     }
     found.sort((a, b) => a[0] - b[0]);
     const n = Math.min(found.length, LIGHTS.length);
