@@ -285,7 +285,7 @@ const isHouse7 = (i, j) => Math.abs(i) > 1 || Math.abs(j) > 1 ? hash(i, j, 77) <
 
 // ---------- renderer / scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)); // render at native (Retina) resolution so it's crisp, not pixelated
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5)); // cap render resolution — full Retina/2x is a big GPU cost (esp. in VR) for little visible gain
 renderer.toneMapping = THREE.ACESFilmicToneMapping;   // filmic highlight rolloff instead of harsh clipping -> more realistic light response
 renderer.toneMappingExposure = 1.15;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;  // soft shadows (used on Level 7)
@@ -329,7 +329,7 @@ let waterDirty = true, waterChunkSig = '';
 // Level 7: one big dark reflective ocean plane that follows the player to the fog horizon
 const OCEAN_Y = 0.85;
 const oceanWater = new Water(new THREE.PlaneGeometry(800, 800), {
-  textureWidth: 1024, textureHeight: 1024, waterNormals: poolNormalTex,   // high-res mirror reflection of the real sky
+  textureWidth: 512, textureHeight: 512, waterNormals: poolNormalTex,   // mirror reflection of the sky (512 — 1024 doubled the reflection render cost for little gain over open water)
   sunDirection: new THREE.Vector3(0.2, 0.9, 0.35).normalize(),
   sunColor: 0xffe6c6, waterColor: 0x0c1824, distortionScale: 3.6, fog: true, alpha: 0.9,  // deep dark navy sea with a warm sun glint
 });
@@ -360,7 +360,7 @@ ceil.rotation.x = Math.PI / 2; ceil.position.y = WALL_H; ceil.receiveShadow = tr
 const LIGHTS = [];
 for (let i = 0; i < 9; i++) {   // ceiling lights around the player; the nearest 3 cast real shadows
   const l = new THREE.PointLight('#fff1c8', 7, 14, 1.15);
-  if (i < 3) { l.castShadow = true; l.shadow.mapSize.set(1024, 1024); l.shadow.camera.near = 0.2; l.shadow.camera.far = 26; l.shadow.bias = -0.0022; l.shadow.normalBias = 0.05; }
+  if (i < 1) { l.castShadow = true; l.shadow.mapSize.set(512, 512); l.shadow.camera.near = 0.2; l.shadow.camera.far = 26; l.shadow.bias = -0.0022; l.shadow.normalBias = 0.05; } // only the single nearest fixture casts a (cube-map) shadow — each one is 6 full-scene passes/frame, so 3 was the main source of lag
   scene.add(l); LIGHTS.push(l);
 }
 const sun = new THREE.DirectionalLight('#ffe7c2', 0); // warm "sunlight" for the Poolrooms (off in Level 0); also the Level 7 sun
