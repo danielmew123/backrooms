@@ -1210,7 +1210,8 @@ function frame(now) {
   glitchPulse = Math.max(0, glitchPulse - dt * 1.3);
 
   // render
-  renderer.setRenderTarget(null); renderer.render(scene, camera);   // clean render; THREE.Water does its reflection pass in onBeforeRender
+  if (!xr) renderer.setRenderTarget(null);   // in VR, three binds the headset framebuffer — don't force it back to the page canvas (that caused an all-black headset)
+  renderer.render(scene, camera);   // THREE.Water does its reflection pass in onBeforeRender
 
   hudT -= dt; if (hudT <= 0) { updateHud(); hudT = 0.25; }
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) document.getElementById('toast').style.opacity = 0; }
