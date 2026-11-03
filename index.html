@@ -175,22 +175,15 @@ function tileDraw(baseR, baseG, baseB, groutA, N, caustics) {
       const v = (Math.random() - 0.5) * 5;
       g.fillStyle = `rgba(${baseR + v},${baseG + v},${baseB + v},0.4)`; g.fillRect(x * s, y * s, s, s);
     }
-    g.strokeStyle = `rgba(${baseR - 55},${baseG - 52},${baseB - 48},0.85)`; g.lineWidth = 2; // grout
+    g.strokeStyle = `rgba(${baseR - 40},${baseG - 38},${baseB - 36},0.8)`; g.lineWidth = 1.6; // thin grey grout
     for (let i = 0; i <= N; i++) { g.beginPath(); g.moveTo(i * s, 0); g.lineTo(i * s, h); g.stroke(); g.beginPath(); g.moveTo(0, i * s); g.lineTo(w, i * s); g.stroke(); }
   };   // textures are ONLY tiles — no baked light; caustics are projected separately
 }
 const poolTileTex  = canvasTex(512, 512, tileDraw(235, 233, 224, 1, 16, false)); // bright white-cream wall/deck tiles
 const poolBasinTex = canvasTex(512, 512, tileDraw(150, 206, 214, 1, 12));         // light teal underwater tiles — glow + clear water reads luminous teal
-const poolColTex   = poolTileTex.clone(); poolColTex.needsUpdate = true; poolColTex.wrapS = poolColTex.wrapT = THREE.RepeatWrapping; poolColTex.repeat.set(7, 5);
-// dim tiled ceiling with a warm fluorescent troffer per cell
-const poolCeilTex = canvasTex(512, 512, (g, w, h) => {
-  g.fillStyle = '#c4beA3'; g.fillRect(0, 0, w, h);
-  g.strokeStyle = 'rgba(110,104,82,0.5)'; g.lineWidth = 2;
-  const N = 14; for (let i = 0; i <= N; i++) { const p = i * w / N; g.beginPath(); g.moveTo(p, 0); g.lineTo(p, h); g.stroke(); g.beginPath(); g.moveTo(0, p); g.lineTo(w, p); g.stroke(); }
-  g.fillStyle = '#efe6c8'; g.fillRect(w * 0.26, h * 0.40, w * 0.48, h * 0.20);   // fixture housing
-  g.fillStyle = '#fffdf4'; g.fillRect(w * 0.28, h * 0.43, w * 0.44, h * 0.14);   // the warm tube
-});
-const poolCeilEmit = canvasTex(512, 512, (g, w, h) => { g.fillStyle = '#000'; g.fillRect(0, 0, w, h); g.fillStyle = '#fff'; g.fillRect(w * 0.28, h * 0.43, w * 0.44, h * 0.14); });
+const poolColTex   = poolTileTex.clone(); poolColTex.needsUpdate = true; poolColTex.wrapS = poolColTex.wrapT = THREE.RepeatWrapping; poolColTex.repeat.set(1.4, 2.5);  // round pillar: ~3.6 m around, 6.3 m tall
+// plain tiled ceiling — Level 37 has no visible light fixtures at all
+const poolCeilTex = canvasTex(512, 512, tileDraw(226, 226, 216, 1, 16, false));
 // tileable ripple normal map for the water surface
 function rippleNormal(size) {
   const c = document.createElement('canvas'); c.width = c.height = size;
@@ -222,13 +215,70 @@ function causticTex(size) {
 }
 const poolCausticTex = causticTex(128); poolCausticTex.repeat.set(1.3, 1.3);        // used ONLY by the projected caustic overlay, never baked into a tile
 // Poolrooms tile materials — these are plain tiles, nothing else painted on
-const poolTileMat  = new THREE.MeshLambertMaterial({ map: poolTileTex, side: THREE.DoubleSide });          // matte walls
-const poolDeckMat  = new THREE.MeshLambertMaterial({ map: poolTileTex, side: THREE.DoubleSide });     // wet, reflective walkway
-const poolBasinMat = new THREE.MeshLambertMaterial({ map: poolBasinTex, side: THREE.DoubleSide, emissive: new THREE.Color(0x1ec0d2), emissiveIntensity: 1.25 }); // the pool floor glows teal, so the water reads luminous in the dim rooms
+// (vertexColors = the baked light/dark field: most rooms bright, some fall completely dark — see poolShade)
+const poolTileMat  = new THREE.MeshLambertMaterial({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true });
+const poolDeckMat  = new THREE.MeshLambertMaterial({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true, color: '#e6ece4' });  // flooded floor
+const poolCeilMat  = new THREE.MeshLambertMaterial({ map: poolCeilTex, side: THREE.DoubleSide, vertexColors: true });
+const poolDeepMat  = new THREE.MeshLambertMaterial({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true, color: '#7fa39b' });   // deep pits read darker
+const poolBasinMat = new THREE.MeshLambertMaterial({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true, color: '#bcd3cb' });  // pit floors/walls (no glow — the light comes from above)
 const poolColMat   = new THREE.MeshLambertMaterial({ map: poolColTex });
 // additive caustic LIGHT, drawn only on the submerged pool floor
-const poolCausticMat = new THREE.MeshBasicMaterial({ map: poolCausticTex, color: 0x5fe6f4, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, vertexColors: true, toneMapped: false, side: THREE.DoubleSide }); // bright cyan caustics
-const POOL_DEPTH = 1.3, POOL_WATER = -0.16; // dry deck at y=0; pools sink to -POOL_DEPTH, the Water surface sits at POOL_WATER (just below the deck)
+const poolCausticMat = new THREE.MeshBasicMaterial({ map: poolCausticTex, color: 0x9fdccd, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, vertexColors: true, toneMapped: false, side: THREE.DoubleSide }); // bright cyan caustics
+const POOL_DEPTH = 1.3, POOL_WATER = 0.32; // Level 37 is FLOODED: tiled floor at y=0 under shin-deep water everywhere; pits sink below
+// light/dark field: "light falls at irregular angles, and some areas are completely dark" — smooth value
+// noise over the room grid, baked into vertex colours (0.07 = pitch dark .. 1 = bright)
+function poolShade(x, z) {
+  const S = 3 * CELL, fx = x / S - 0.5, fz = z / S - 0.5, i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
+  const h = (a, b) => hash(a, b, 377), sm = t => t * t * (3 - 2 * t), L = THREE.MathUtils.lerp;
+  const n = L(L(h(i, j), h(i + 1, j), sm(u)), L(h(i, j + 1), h(i + 1, j + 1), sm(u)), sm(v));
+  const spawn = Math.max(0, 1 - Math.hypot(x, z) / 18);                       // the spawn room is always lit
+  return 0.07 + 0.93 * Math.max(spawn, THREE.MathUtils.smoothstep(n, 0.24, 0.52));
+}
+function tileMeshMerged(parts) {      // parts: [[P, N, U, '#tint'], ...] -> ONE mesh, colour = light/dark field x tint
+  const P = [], N = [], U = [], C = [], c = new THREE.Color();
+  for (const [p, n, u, tint] of parts) {
+    c.set(tint);
+    for (let k = 0; k < p.length; k += 3) { const b = poolShade(p[k], p[k + 2]); C.push(b * c.r, b * c.g, b * c.b); }
+    for (const v of p) P.push(v); for (const v of n) N.push(v); for (const v of u) U.push(v);
+  }
+  const m = geoMesh(P, N, U, poolTileMat); m.geometry.setAttribute('color', new THREE.Float32BufferAttribute(C, 3)); return m;
+}
+function geoMeshC(P, N, U, mat) {   // geoMesh + per-vertex light/dark colours
+  const m = geoMesh(P, N, U, mat), C = new Float32Array(P.length);
+  for (let k = 0; k < P.length; k += 3) { const b = poolShade(P[k], P[k + 2]); C[k] = C[k + 1] = C[k + 2] = b; }
+  m.geometry.setAttribute('color', new THREE.BufferAttribute(C, 3)); return m;
+}
+// shafts of daylight landing on the tile at odd angles (soft-edged parallelograms, no light source in view)
+const patchTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+  g.filter = 'blur(7px)'; g.fillStyle = '#fff'; g.fillRect(16, 16, 96, 96);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+const patchMat = new THREE.MeshBasicMaterial({ map: patchTex, color: '#fffaf0', transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false, fog: true, polygonOffset: true, polygonOffsetFactor: -2, side: THREE.DoubleSide });
+const chromeMat = new THREE.MeshPhongMaterial({ color: '#cfd5d8', specular: '#ffffff', shininess: 90 });
+// rounded arch over a 3 m doorway (wall-thick), shared geometry; UVs scaled to tile units
+let _arch = null;
+function archGeo() {
+  if (_arch) return _arch;
+  const hw = 1.5, sp = 1.9, top = 2.82, sh = new THREE.Shape();
+  sh.moveTo(-hw, WALL_H); sh.lineTo(-hw, sp);
+  for (let k = 1; k <= 24; k++) { const a = Math.PI - k / 24 * Math.PI; sh.lineTo(Math.cos(a) * hw, sp + Math.sin(a) * (top - sp)); }
+  sh.lineTo(hw, WALL_H); sh.closePath();
+  const g = new THREE.ExtrudeGeometry(sh, { depth: 0.28, bevelEnabled: false, curveSegments: 1 }); g.translate(0, 0, -0.14);
+  const uv = g.attributes.uv; for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) / 2.5, uv.getY(k) / 2.5);
+  return (_arch = g);
+}
+const _pm4 = new THREE.Matrix4(), _pq4 = new THREE.Quaternion(), _pe4 = new THREE.Euler(), _pv4 = new THREE.Vector3(), _ps4 = new THREE.Vector3();
+function pushGeo(P, N, U, geo, x, y, z, ry = 0, rx = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
+  _pm4.compose(_pv4.set(x, y, z), _pq4.setFromEuler(_pe4.set(rx, ry, rz)), _ps4.set(sx, sy, sz));
+  const g = (geo.index ? geo.toNonIndexed() : geo.clone()).applyMatrix4(_pm4);
+  for (const v of g.attributes.position.array) P.push(v); for (const v of g.attributes.normal.array) N.push(v); for (const v of g.attributes.uv.array) U.push(v);
+  g.dispose();
+}
+// a light patch quad on a wall face (axis 0: face normal along x, at x=c; axis 1: along z) or on the floor
+function addPatch(Q, Qu, axis, c, a0, w, y0, h, shear) {
+  const v = axis === 2 ? [[a0, y0], [a0 + w, y0], [a0 + w + shear, y0 + h], [a0 + shear, y0 + h]] : [[a0, y0], [a0 + w, y0], [a0 + w + shear, y0 + h], [a0 + shear, y0 + h]];
+  const P3 = ([s, t]) => axis === 0 ? [c, t, s] : axis === 1 ? [s, t, c] : [s, c, t];
+  for (const k of [0, 1, 2, 0, 2, 3]) { Q.push(...P3(v[k])); Qu.push(k === 1 || k === 2 ? 1 : 0, k >= 2 ? 1 : 0); }
+}
 
 // ---------- Level 2 "Pipe Dreams" (dark concrete service tunnels, pipes everywhere) ----------
 const concWallTex = canvasTex(512, 512, (g, w, h) => {
@@ -402,11 +452,12 @@ const poolWater = new Water(new THREE.BufferGeometry(), {
   textureWidth: 256, textureHeight: 256,   // pool mirror reflection is an extra full-scene pass per frame; 256 is plenty for rippled water and ~4x cheaper than 512
   waterNormals: poolNormalTex,
   sunDirection: new THREE.Vector3(0.25, 1.0, 0.1).normalize(),
-  sunColor: 0xd6fbff, waterColor: 0x15929f, distortionScale: 2.2, fog: true, alpha: 0.66,  // luminous teal pool water (Escape-the-Backrooms Poolrooms look)
+  sunColor: 0x55564f, waterColor: 0x2c7c6e, distortionScale: 0.35, fog: true, alpha: 0.5,  // clear, lukewarm blue-green; barely rippling  // luminous teal pool water (Escape-the-Backrooms Poolrooms look)
 });
 poolWater.rotation.x = -Math.PI / 2; poolWater.position.y = POOL_WATER;
 poolWater.material.transparent = true;
-poolWater.material.uniforms.size.value = 26.0;  // ripple scale (bigger number = finer waves)
+poolWater.material.uniforms.size.value = 34.0;  // "undisturbed yet shows a minimal, constant rippling"
+{ const under = new THREE.Mesh(new THREE.PlaneGeometry(240, 240), new THREE.MeshBasicMaterial({ color: '#5c9f92', side: THREE.BackSide, fog: true, transparent: true, opacity: 0.85 })); under.position.z = -0.01; poolWater.add(under); }
 poolWater.renderOrder = 2; poolWater.visible = false;
 scene.add(poolWater);
 let waterDirty = true, waterChunkSig = '';
@@ -499,11 +550,11 @@ const LEVELS = {
     emissiveCol: '#fff6d8', emissive: 0, water: false, env: 0.1,
   },
   pool: {
-    name: 'POOLROOMS', floorNormal: poolNormalTex, ceil: poolCeilTex, ceilEmit: poolCeilEmit,
-    fog: new THREE.Color('#383d3e'), fogNear: 5, fogFar: 32,           // dim, cool neutral haze — moody rooms where the glowing water is the brightest thing
-    hemiSky: '#6c7470', hemiGround: '#303430', hemi: 0.5, ambCol: '#5a5e58', amb: 0.34,  // raised to replace the removed IBL so the white tiles read again (free light); teal pools still the brightest thing
-    lightCol: '#2fd2e6', light: 8, lightDist: 14, lightDecay: 2, sun: 0, poolLights: true, poolLightRate: 0.4,  // only ~40% of pools emit a teal light (fewer light sources = less frequent glow + cheaper); the rest are lit only by their emissive basin
-    emissiveCol: '#fff3d6', emissive: 0.72, water: true, env: 0.22,
+    name: 'POOLROOMS', ceil: poolCeilTex, ceilEmit: null,                 // Level 37 "Sublimity" (Backrooms wiki)
+    fog: new THREE.Color('#bfc8c1'), fogNear: 10, fogFar: 64,          // light, dreamlike haze
+    hemiSky: '#fff8ec', hemiGround: '#c2d2ca', hemi: 0.75, ambCol: '#eef2ea', amb: 0.22,  // bright, sourceless daylight (dark rooms come from the baked shade field)
+    lightCol: '#ffffff', light: 0, lightDist: 14, lightDecay: 2, sun: 1.15, sunCol: '#fff3dc',  // no fixtures; a shadowless directional "daylight" so faces shade apart
+    emissiveCol: '#000000', emissive: 0, water: true, flood: true, env: 0.22,
   },
   level2: {
     name: 'LEVEL 2 — PIPE DREAMS', ceil: concCeilTex, ceilEmit: null,
@@ -532,11 +583,11 @@ function setLevel(name) {
   L.ceil.repeat.set(PLANE / CELL, PLANE / CELL); if (L.ceilEmit) L.ceilEmit.repeat.copy(L.ceil.repeat);
   hemi.color.set(L.hemiSky); hemi.groundColor.set(L.hemiGround); ambient.color.set(L.ambCol);
   for (const l of LIGHTS) { l.color.set(L.lightCol); l.distance = L.lightDist; l.decay = L.lightDecay; }
-  sun.intensity = L.sun;
+  sun.intensity = L.sun; if (L.sunCol) { sun.color.set(L.sunCol); sun.position.set(-7, 12, 4); sun.target.position.set(0, 0, 0); sun.target.updateMatrixWorld(); }
   scene.environmentIntensity = L.env != null ? L.env : 0.5;   // how strongly the env reflections/ambient show (kept low on the dark level)
   scene.fog.near = L.fogNear; scene.fog.far = L.fogFar; scene.background = L.fog;
   floor.visible = !L.water && !L.ocean;                       // Poolrooms supplies its own per-cell floor; the ocean has no floor you can reach
-  ceil.visible = !L.ocean;                                    // Level 7 uses its own concrete ceiling (with the doorway hole)
+  ceil.visible = !L.ocean && !L.flood;                        // Level 7 / Poolrooms build their own ceilings
   oceanWater.visible = !!L.ocean; sun.castShadow = false;
   ceil7.visible = !!L.ocean; ceil7Key = '';
   if (L.ocean) { buildRoom7(); buildDebris7(); }
@@ -549,7 +600,7 @@ function setLevel(name) {
   }
   if (typeof player !== 'undefined') { player.pos.set(CELL / 2, 0, CELL / 2); player.vel.set(0, 0, 0); } // drop at the room's always-clear spawn so you never land inside a wall after switching rooms
   if (L.ocean && typeof player !== 'undefined') enterRoom7();   // Level 7 starts at the bottom of the stairs from Level 6
-  else { l7.phase = null; rig.position.set(0, 0, 0); rig.quaternion.identity(); }
+  else { l7.phase = null; l7.F = 0; l7.vy = 0; l7.swim = false; rig.position.set(0, 0, 0); rig.quaternion.identity(); }
   applyRenderBudget();                                        // light count / shadow res for this level (+ VR or not)
 }
 
@@ -657,8 +708,7 @@ function cellBoxes(i, j) {
   const key = i + ',' + j; let b = cellCache.get(key); if (b) return b;
   if (currentLevel === 'pool') {
     b = wallBoxes(i, j);
-    if (isColumnCell(i, j)) { const cx = i * CELL + CELL / 2, cz = j * CELL + CELL / 2; b.push([cx - COL_R, cx + COL_R, 0, WALL_H, cz - COL_R, cz + COL_R]); }
-    if (isDeep(i, j)) b.push([i * CELL, i * CELL + CELL, 0, 0.7, j * CELL, j * CELL + CELL]); // stay on the deck, walk around the pool
+    if (isColumnCell(i, j)) { const cx = i * CELL + CELL / 2, cz = j * CELL + CELL / 2, r = COL_R * 0.72; b.push([cx - r, cx + r, 0, WALL_H, cz - r, cz + r]); }
   } else if (currentLevel === 'level2') b = level2Boxes(i, j);
   else if (currentLevel === 'level7') { const x0 = i * CELL, z0 = j * CELL; b = FORT_BOXES.filter(f => f[1] > x0 - 0.5 && f[0] < x0 + CELL + 0.5 && f[5] > z0 - 0.5 && f[4] < z0 + CELL + 0.5); } // open water; the fort's walls block you
   else b = level0Boxes(i, j);
@@ -947,24 +997,24 @@ function causticMesh(P, U, C) {
   g.computeBoundingSphere();
   const m = new THREE.Mesh(g, poolCausticMat); m.renderOrder = 1; return m;
 }
-// Rebuild the single Water plane's geometry from the pool cells in all loaded chunks (local coords
-// are the flat-rotated space: world (x,z) -> local (x,-z,0), so the plane sits at y = POOL_WATER).
+// The whole level is flooded: one big Water plane at POOL_WATER that follows you (see frame()).
 function rebuildPoolWater() {
-  const P = [];
-  for (const key of chunks.keys()) {
-    const [cx, cz] = key.split(',').map(Number);
-    for (let i = cx * CHUNK; i < (cx + 1) * CHUNK; i++) for (let j = cz * CHUNK; j < (cz + 1) * CHUNK; j++) {
-      if (!isDeep(i, j)) continue;
-      const x0 = i * CELL, z0 = j * CELL, x1 = x0 + CELL, z1 = z0 + CELL;
-      for (const [x, z] of [[x0, z1], [x1, z1], [x1, z0], [x0, z1], [x1, z0], [x0, z0]]) P.push(x, -z, 0);
+  if (!poolWater.userData.flood) { poolWater.geometry.dispose(); poolWater.geometry = new THREE.PlaneGeometry(240, 240); poolWater.userData.flood = true; }
+  poolWater.visible = currentLevel === 'pool';
+}
+// ground height under you in the Poolrooms: 0 on the flooded floor, -depth in a pit, the step top on stairs
+function poolGround(x, z) {
+  const i = Math.floor(x / CELL), j = Math.floor(z / CELL); if (!isDeep(i, j)) return 0;
+  const pd = cellDepth(i, j), rI = rID(i), rJ = rID(j), x0 = i * CELL, z0 = j * CELL;
+  if (hasStairs(rI, rJ)) {
+    const sd = stairSide(rI, rJ), nb = [[i - 1, j], [i + 1, j], [i, j - 1], [i, j + 1]][sd];
+    if (!isDeep(nb[0], nb[1])) {
+      const n = Math.max(3, Math.round(pd / 0.4)), run = Math.min(2.4, CELL * 0.55);
+      const d = [x - x0, x0 + CELL - x, z - z0, z0 + CELL - z][sd];
+      if (d < run) return -pd * Math.floor(d / run * n) / n;
     }
   }
-  poolWater.geometry.dispose();
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
-  g.computeVertexNormals();
-  poolWater.geometry = g;
-  poolWater.visible = currentLevel === 'pool' && P.length > 0;
+  return -pd;
 }
 // a tiled staircase plunging from the deck down into a pool, on one edge of the cell (side 0:-x 1:+x 2:-z 3:+z)
 function poolStairs(P, N, U, x0, x1, z0, z1, pd, side) {
@@ -982,37 +1032,74 @@ function buildChunk(cx, cz) {
   const group = new THREE.Group();
   const i0 = cx * CHUNK, j0 = cz * CHUNK, i1 = i0 + CHUNK, j1 = j0 + CHUNK;
   if (currentLevel === 'pool') {
-    const tP = [], tN = [], tU = [], dP = [], dN = [], dU = [], bP = [], bN = [], bU = [], colXZ = [], cP = [], cU = [], cC = [];
-    const R = 0.22, LIP = 0.14, e = 0.04;
+    const tP = [], tN = [], tU = [], dP = [], dN = [], dU = [], bP = [], bN = [], bU = [], kP = [], kN = [], kU = [], eP = [], eN = [], eU = [], hP = [], hN = [], hU = [];
+    const colXZ = [], cP = [], cU = [], cC = [], Q = [], Qu = [], e = 0.04, HYD = 2.35;
+    const rail = new THREE.CylinderGeometry(0.022, 0.022, 1, 8), knob = new THREE.SphereGeometry(0.03, 8, 6);
     for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) {
-      const x0 = i * CELL, z0 = j * CELL, x1 = x0 + CELL, z1 = z0 + CELL;
-      if (isDeep(i, j)) {                                                      // sunken pool (the Water surface is a separate global plane)
-        const pd = cellDepth(i, j);                                           // this room's pool depth — shallow, mid, or a deep pit
+      const x0 = i * CELL, z0 = j * CELL, x1 = x0 + CELL, z1 = z0 + CELL, sh = poolShade(x0 + CELL / 2, z0 + CELL / 2);
+      addQuadY(eP, eN, eU, x0, x1, z0, z1, WALL_H, false);                       // tiled ceiling (per cell, so dark rooms are dark overhead too)
+      if (isDeep(i, j)) {                                                       // a pit under the flood (some with stairs straight down into it)
+        const pd = cellDepth(i, j), deepM = pd > 2 ? kP : bP, deepN = pd > 2 ? kN : bN, deepU = pd > 2 ? kU : bU;
         const rI = rID(i), rJ = rID(j), stair = hasStairs(rI, rJ) ? stairSide(rI, rJ) : -1;
-        addQuadY(bP, bN, bU, x0, x1, z0, z1, -pd, true);                      // basin floor (green tile)
-        addCausticFloor(cP, cU, cC, x0, x1, z0, z1, -pd + 0.015, 0.5);        // caustics on the pool bottom
-        if (!isDeep(i - 1, j)) { if (stair === 0) poolStairs(tP, tN, tU, x0, x1, z0, z1, pd, 0); else { addWallSeg(bP, bN, bU, x0, z0, x0, z1, -pd, 0); addCausticWall(cP, cU, cC, x0 + e, z0, x0 + e, z1, -pd, POOL_WATER, 0.1, 0.22); } }
-        if (!isDeep(i + 1, j)) { if (stair === 1) poolStairs(tP, tN, tU, x0, x1, z0, z1, pd, 1); else { addWallSeg(bP, bN, bU, x1, z1, x1, z0, -pd, 0); addCausticWall(cP, cU, cC, x1 - e, z1, x1 - e, z0, -pd, POOL_WATER, 0.1, 0.22); } }
-        if (!isDeep(i, j - 1)) { if (stair === 2) poolStairs(tP, tN, tU, x0, x1, z0, z1, pd, 2); else { addWallSeg(bP, bN, bU, x1, z0, x0, z0, -pd, 0); addCausticWall(cP, cU, cC, x1, z0 + e, x0, z0 + e, -pd, POOL_WATER, 0.1, 0.22); } }
-        if (!isDeep(i, j + 1)) { if (stair === 3) poolStairs(tP, tN, tU, x0, x1, z0, z1, pd, 3); else { addWallSeg(bP, bN, bU, x0, z1, x1, z1, -pd, 0); addCausticWall(cP, cU, cC, x0, z1 - e, x1, z1 - e, -pd, POOL_WATER, 0.1, 0.22); } }
+        addQuadY(deepM, deepN, deepU, x0, x1, z0, z1, -pd, true);
+        addCausticFloor(cP, cU, cC, x0, x1, z0, z1, -pd + 0.015, 0.22 * sh);
+        const sides = [[!isDeep(i - 1, j), () => addWallSeg(deepM, deepN, deepU, x0, z0, x0, z1, -pd, 0), () => addCausticWall(cP, cU, cC, x0 + e, z0, x0 + e, z1, -pd, 0, 0.08 * sh, 0.18 * sh)],
+                       [!isDeep(i + 1, j), () => addWallSeg(deepM, deepN, deepU, x1, z1, x1, z0, -pd, 0), () => addCausticWall(cP, cU, cC, x1 - e, z1, x1 - e, z0, -pd, 0, 0.08 * sh, 0.18 * sh)],
+                       [!isDeep(i, j - 1), () => addWallSeg(deepM, deepN, deepU, x1, z0, x0, z0, -pd, 0), () => addCausticWall(cP, cU, cC, x1, z0 + e, x0, z0 + e, -pd, 0, 0.08 * sh, 0.18 * sh)],
+                       [!isDeep(i, j + 1), () => addWallSeg(deepM, deepN, deepU, x0, z1, x1, z1, -pd, 0), () => addCausticWall(cP, cU, cC, x0, z1 - e, x1, z1 - e, -pd, 0, 0.08 * sh, 0.18 * sh)]];
+        sides.forEach(([edge, wall, caus], sd) => {
+          if (!edge) return;
+          if (stair === sd) { poolStairs(tP, tN, tU, x0, x1, z0, z1, pd, sd); return; }
+          wall(); caus();
+          if (hash(i, j, 300 + sd) < 0.12) {                                   // chrome pool ladder hooked over the edge
+            const mx = sd < 2 ? (sd === 0 ? x0 + 0.1 : x1 - 0.1) : x0 + CELL / 2, mz = sd < 2 ? z0 + CELL / 2 : (sd === 2 ? z0 + 0.1 : z1 - 0.1), along = sd < 2;
+            for (const o of [-0.25, 0.25]) {
+              const rx = along ? mx : mx + o, rz = along ? mz + o : mz, ox = sd === 0 ? -0.18 : sd === 1 ? 0.18 : 0, oz = sd === 2 ? -0.18 : sd === 3 ? 0.18 : 0;
+              pushGeo(hP, hN, hU, rail, rx, -0.55, rz, 0, 0, 0, 1, 1.9, 1);                          // upright, down into the pit
+              pushGeo(hP, hN, hU, rail, rx + ox / 2, 0.42, rz + oz / 2, 0, oz ? Math.PI / 2 : 0, ox ? Math.PI / 2 : 0, 1, 0.2, 1); // bend over the edge
+              pushGeo(hP, hN, hU, rail, rx + ox, 0.2, rz + oz, 0, 0, 0, 1, 0.45, 1);                   // back down onto the floor
+              pushGeo(hP, hN, hU, knob, rx, 0.4, rz); pushGeo(hP, hN, hU, knob, rx + ox, 0.4, rz + oz);
+            }
+            for (const yy of [-0.2, -0.55, -0.9]) pushGeo(hP, hN, hU, rail, mx, yy, mz, 0, along ? Math.PI / 2 : 0, along ? 0 : Math.PI / 2, 1, 0.5, 1);  // rungs
+          }
+        });
       } else {
-        addQuadY(dP, dN, dU, x0, x1, z0, z1, 0, true);                         // dry, glossy walkway deck
-        if (isDeep(i - 1, j)) addBox(tP, tN, tU, [x0, x0 + R, 0, LIP, z0, z1]); // raised tiled lip at the pool edge
-        if (isDeep(i + 1, j)) addBox(tP, tN, tU, [x1 - R, x1, 0, LIP, z0, z1]);
-        if (isDeep(i, j - 1)) addBox(tP, tN, tU, [x0, x1, 0, LIP, z0, z0 + R]);
-        if (isDeep(i, j + 1)) addBox(tP, tN, tU, [x0, x1, 0, LIP, z1 - R, z1]);
+        addQuadY(dP, dN, dU, x0, x1, z0, z1, 0, true);                          // the flooded tile floor
+        addCausticFloor(cP, cU, cC, x0, x1, z0, z1, 0.012, 0.045 * sh);           // faint light wobbling through the water onto it
+        if (sh > 0.75 && hash(i, j, 310) < 0.14) {                              // a slanted shaft of daylight landing on the floor
+          const w = 0.8 + hash(i, j, 311) * 0.9, h = 1.4 + hash(i, j, 312) * 1.6;
+          addPatch(Q, Qu, 2, 0.008, x0 + 0.6 + hash(i, j, 313) * 2, w, z0 + 0.5 + hash(i, j, 314) * 1.8, h, (hash(i, j, 315) - 0.5) * 1.6);
+        }
       }
-      for (const box of wallBoxes(i, j)) addBox(tP, tN, tU, box);              // tiled room walls + doorways
+      for (const box of wallBoxes(i, j)) {
+        const ax = box[1] - box[0] < 0.5 ? 0 : 1, len = ax === 0 ? box[5] - box[4] : box[1] - box[0];
+        if (box[2] === HYD && Math.abs(len - 3) < 0.01) {                       // doorway header -> a rounded arch
+          if (ax === 0) pushGeo(tP, tN, tU, archGeo(), (box[0] + box[1]) / 2, 0, (box[4] + box[5]) / 2, Math.PI / 2);
+          else pushGeo(tP, tN, tU, archGeo(), (box[0] + box[1]) / 2, 0, (box[4] + box[5]) / 2, 0);
+          continue;
+        }
+        addBox(tP, tN, tU, box);
+        // daylight falling on the wall "at irregular angles" (only where the room is lit)
+        if (box[2] === 0 && len > 1.8) {
+          const mxw = (box[0] + box[1]) / 2, mzw = (box[4] + box[5]) / 2, k = Math.floor(box[0] * 7 + box[4] * 13);
+          if (poolShade(mxw, mzw) > 0.8 && hash(k, 5, 320) < 0.55) {
+            const side = hash(k, 6, 321) < 0.5 ? -1 : 1, c = ax === 0 ? (side < 0 ? box[0] - 0.01 : box[1] + 0.01) : (side < 0 ? box[4] - 0.01 : box[5] + 0.01);
+            const s0 = ax === 0 ? box[4] : box[0], nP = 1 + Math.floor(hash(k, 7, 322) * 3), shear = (hash(k, 8, 323) - 0.5) * 1.2, w = 0.45 + hash(k, 9, 324) * 0.5, hgt = 1.0 + hash(k, 10, 325) * 1.1, y0 = 0.36 + hash(k, 11, 326) * 0.5;
+            for (let q = 0; q < nP; q++) { const a0 = s0 + 0.3 + q * (w + 0.45); if (a0 + w + Math.abs(shear) < s0 + len - 0.2) addPatch(Q, Qu, ax, c, a0, w, y0, hgt, shear); }
+          }
+        }
+      }
       if (isColumnCell(i, j)) colXZ.push([x0 + CELL / 2, z0 + CELL / 2]);
     }
-    if (tP.length) group.add(geoMesh(tP, tN, tU, poolTileMat));
-    if (dP.length) group.add(geoMesh(dP, dN, dU, poolDeckMat));
-    if (bP.length) group.add(geoMesh(bP, bN, bU, poolBasinMat));
+    rail.dispose(); knob.dispose();
+    group.add(tileMeshMerged([[tP, tN, tU, '#ffffff'], [dP, dN, dU, '#e3ebe3'], [bP, bN, bU, '#b9d1c9'], [kP, kN, kU, '#7a9e96'], [eP, eN, eU, '#eceee6']]));
+    if (hP.length) group.add(geoMesh(hP, hN, hU, chromeMat));
     if (cP.length) group.add(causticMesh(cP, cU, cC));
-    if (colXZ.length) {                                                        // square tiled columns, all in one instanced draw
-      const CB = 3.3, h = WALL_H + CB, s = COL_R * 1.9, inst = new THREE.InstancedMesh(new THREE.BoxGeometry(s, h, s), poolColMat, colXZ.length), mtx = new THREE.Matrix4();
-      colXZ.forEach((p, idx) => { mtx.makeTranslation(p[0], (WALL_H - CB) / 2, p[1]); inst.setMatrixAt(idx, mtx); }); // span from below the deepest pit up to the ceiling, so pillars rise out of pools of any depth
-      inst.instanceMatrix.needsUpdate = true; inst.frustumCulled = false; group.add(inst);
+    if (Q.length) { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(Q, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(Qu, 2)); g.computeBoundingSphere(); const m = new THREE.Mesh(g, patchMat); m.renderOrder = 1; group.add(m); }
+    if (colXZ.length) {                                                        // ROUND tiled pillars rising out of the water, one instanced draw
+      const CB = 3.3, h = WALL_H + CB, inst = new THREE.InstancedMesh(new THREE.CylinderGeometry(COL_R * 0.8, COL_R * 0.8, h, 28, 1, true), poolColMat, colXZ.length), mtx = new THREE.Matrix4(), col = new THREE.Color();
+      colXZ.forEach((p, idx) => { mtx.makeTranslation(p[0], (WALL_H - CB) / 2, p[1]); inst.setMatrixAt(idx, mtx); inst.setColorAt(idx, col.setScalar(poolShade(p[0], p[1]))); });
+      inst.instanceMatrix.needsUpdate = true; inst.instanceColor.needsUpdate = true; inst.frustumCulled = false; group.add(inst);
     }
   } else if (currentLevel === 'level7') {                           // open ocean: a rare island of unknown rock (Fort Surrender on the nearest)
     const isl = island7(cx, cz); if (isl) { group.add(makeIsland(isl)); if (isl.fort) group.add(makeFort(isl)); }
@@ -1279,8 +1366,28 @@ function splash7() {
   g.gain.setValueAtTime(0.9, t); g.gain.exponentialRampToValueAtTime(0.001, t + 1.6);
   n.connect(f).connect(g).connect(amb.out); n.start(t); n.stop(t + 1.7);
 }
-function updateAmbience(on, room, under, light) {
+function wadeStep(speed) {   // sloshing through shin-deep water
+  if (!amb) return;
+  const ctx = amb.ctx, t = ctx.currentTime, n = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+  n.buffer = amb.nb; f.type = 'bandpass'; f.frequency.setValueAtTime(700 + Math.random() * 500, t); f.frequency.exponentialRampToValueAtTime(300, t + 0.35); f.Q.value = 0.9;
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.1 + speed * 0.04, t + 0.04); g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+  n.connect(f).connect(g).connect(amb.poolBus); n.start(t, Math.random() * 2); n.stop(t + 0.45);
+}
+function updateAmbience(on, room, under, light, pool = false) {
   if (!amb) return; const t = amb.ctx.currentTime;
+  if (!amb.poolBus) {   // Level 37: dead, muted acoustics (no echo), quiet lapping that now and then swells and drowns everything
+    const ctx = amb.ctx; amb.poolBus = ctx.createGain(); amb.poolBus.gain.value = 0;
+    const pl = ctx.createBiquadFilter(); pl.type = 'lowpass'; pl.frequency.value = 1800; amb.poolLp = pl; amb.poolBus.connect(pl).connect(ctx.destination);
+    const src = ctx.createBufferSource(); src.buffer = amb.nb; src.loop = true; src.start(0, 1.3);
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 520; bp.Q.value = 0.7; amb.poolLap = ctx.createGain(); amb.poolLap.gain.value = 0.08;
+    src.connect(bp).connect(amb.poolLap).connect(amb.poolBus); amb.nextSurge = performance.now() + 15000;
+  }
+  amb.poolBus.gain.setTargetAtTime(pool ? 1 : 0, t, 0.4);
+  amb.poolLp.frequency.setTargetAtTime(under ? 420 : 1800, t, 0.08);
+  if (pool && performance.now() > amb.nextSurge) {    // "occasionally becomes intrusive and drowns out other sounds"
+    amb.poolLap.gain.setTargetAtTime(0.55, t, 1.4); amb.poolLap.gain.setTargetAtTime(0.08, t + 5, 1.8);
+    amb.nextSurge = performance.now() + 25000 + Math.random() * 40000;
+  }
   amb.out.gain.setTargetAtTime(on ? (room ? 0.3 : 0.75) : 0, t, 0.4);
   amb.lp.frequency.setTargetAtTime(under ? 380 : room ? 1500 : 6000, t, 0.08);
   amb.buzzG.gain.setTargetAtTime(on && room ? 0.012 * light : 0, t, 0.15);
@@ -1414,10 +1521,10 @@ function beginFall7(xr) {
   entity.visible = false;
   fadeA = xr ? 1 : 0.6;                                                               // blink through the gravity flip (VR comfort)
 }
-function seaPhysics7(dt, time, xr) {
+function waterPhysics(dt, time, xr, ground, wl) {
   const eyeH = xr ? Math.max(0.5, camera.position.y) : 1.48;
-  const swimF = SEA_Y + 0.22 - eyeH + Math.sin(time * 1.25) * 0.045 + Math.sin(time * 0.53) * 0.03;  // treading water: head just above the swell
-  const g = groundY7(player.pos.x, player.pos.z);
+  const swimF = wl + 0.22 - eyeH + Math.sin(time * 1.25) * 0.045 + Math.sin(time * 0.53) * 0.03;  // treading water: head just above the surface
+  const g = ground(player.pos.x, player.pos.z);
   if (g >= swimF) {                                    // standing on an island / in its shallows
     l7.swim = false;
     if (l7.F > g + 0.03) { l7.vy -= 9.8 * dt; l7.F += l7.vy * dt; if (l7.F <= g) { l7.F = g; l7.vy = 0; } }
@@ -1469,8 +1576,9 @@ function frame(now) {
     if (Math.hypot(mx, my) > 0.15) { const cd = new THREE.Vector3(); camera.getWorldDirection(cd); cd.applyQuaternion(_rigInv.copy(rig.quaternion).invert()); cd.y = 0; cd.normalize(); const cr = new THREE.Vector3(-cd.z, 0, cd.x); wish.addScaledVector(cd, -my).addScaledVector(cr, mx); }
   }
   const running = keys.has('ShiftLeft') || keys.has('ShiftRight');
-  if (wish.lengthSq() > 0) wish.normalize().multiplyScalar((running ? 4.6 : 2.2) * (l7.phase === 'sea' && l7.swim ? 0.5 : 1));  // swimming is slow
+  if (wish.lengthSq() > 0) wish.normalize().multiplyScalar((running ? 4.6 : 2.2) * ((l7.phase === 'sea' || LV.flood) && l7.swim ? 0.5 : LV.flood ? 0.8 : 1));  // swimming is slow; wading shin-deep drags a little
   player.vel.lerp(wish, 1 - Math.exp(-10 * dt));
+  const px0 = player.pos.x, pz0 = player.pos.z;
   player.pos.addScaledVector(player.vel, dt);
   if (l7.phase === 'room') {
     collideRoom(player.pos, 0.3);
@@ -1483,8 +1591,17 @@ function frame(now) {
       if (player.pos.z < -R7.D / 2 - 0.3) beginFall7(xr);
     } else l7.pullV = Math.max(0, l7.pullV - dt * 8);
   } else collide(player.pos, 0.38);
-  if (l7.phase === 'sea') seaPhysics7(dt, time, xr);
-  const baseY = l7.phase === 'sea' ? l7.F : 0;                    // feet height (Level 7 ocean: treading water / on an island)
+  if (l7.phase === 'sea') waterPhysics(dt, time, xr, groundY7, SEA_Y);
+  if (LV.flood) {
+    // pits: you can step or fall in, but "some open water areas have no ledges to climb out onto" —
+    // you can't haul yourself up a sheer pit wall; only stairs (or walking along the floor) get you out
+    const tooHigh = (x, z) => poolGround(x, z) > l7.F + 0.45;
+    if (tooHigh(player.pos.x, player.pos.z)) {
+      if (!tooHigh(player.pos.x, pz0)) player.pos.z = pz0; else if (!tooHigh(px0, player.pos.z)) player.pos.x = px0; else { player.pos.x = px0; player.pos.z = pz0; }
+    }
+    waterPhysics(dt, time, xr, poolGround, POOL_WATER);
+  }
+  const baseY = l7.phase === 'sea' || LV.flood ? l7.F : 0;                    // feet height (Level 7 ocean: treading water / on an island)
   const wx = l7.phase === 'room' ? 0 : player.pos.x, wz = l7.phase === 'room' ? 0 : player.pos.z;  // where you are in the world (the room hangs over 0,0)
   const speed = Math.hypot(player.vel.x, player.vel.z);
   player.speed = speed;
@@ -1565,15 +1682,17 @@ function frame(now) {
   ambient.intensity = LV.amb * globalLight + 0.015;
   ceilMat.emissiveIntensity = LV.emissive * globalLight;
   scene.fog.color.copy(LV.fog).multiplyScalar(0.08 + 0.92 * globalLight);
-  if (LV.ocean) {                                  // Level 7: under the surface it's murky near-black teal
-    camera.getWorldPosition(_cw); l7.under = l7.phase === 'sea' && _cw.y < SEA_Y - 0.03;
-    if (l7.under) scene.fog.color.set('#061519').multiplyScalar(0.3 + 0.7 * globalLight);
-    scene.fog.near = l7.under ? 0.1 : LV.fogNear; scene.fog.far = l7.under ? 9 : LV.fogFar;
+  if (LV.ocean || LV.flood) {                      // under the surface: Level 7 murky near-black, Poolrooms clear blue-green
+    camera.getWorldPosition(_cw); l7.under = (l7.phase === 'sea' || LV.flood) && _cw.y < (LV.flood ? POOL_WATER : SEA_Y) - 0.03;
+    if (l7.under) scene.fog.color.set(LV.flood ? '#3f8d80' : '#061519').multiplyScalar(0.3 + 0.7 * globalLight);
+    scene.fog.near = l7.under ? 0.1 : LV.fogNear; scene.fog.far = l7.under ? (LV.flood ? 14 : 9) : LV.fogFar;
   }
   scene.background = scene.fog.color;
-  updateAmbience(!!LV.ocean, l7.phase === 'room', l7.under, globalLight);
+  updateAmbience(!!LV.ocean, l7.phase === 'room', l7.under, globalLight, !!LV.flood);
+  if (LV.flood && !l7.swim && speed > 0.4 && Math.floor(player.phase / Math.PI) !== Math.floor((player.phase - speed * dt * 2.6) / Math.PI)) wadeStep(speed);
   if (currentLevel === 'pool') {
-    poolWater.material.uniforms.time.value += dt * 0.6;                 // three.js Water animates its own ripples + reflection
+    poolWater.material.uniforms.time.value += dt * 0.25;                // slow, minimal ripple
+    poolWater.position.x = Math.round(wx / CELL) * CELL; poolWater.position.z = Math.round(wz / CELL) * CELL;  // the flood follows you
     poolCausticTex.offset.set(time * 0.02 % 1, time * 0.045 % 1);       // caustics drifting on the pool bottom
   } else if (currentLevel === 'level7') {
     oceanWater.material.uniforms.time.value += dt * 0.35;                // slow, heavy swell
