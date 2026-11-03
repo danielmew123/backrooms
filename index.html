@@ -89,7 +89,8 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 const params = new URLSearchParams(location.search);
 // Realistic graphics (default): physically based materials + photographic CC0 textures (ambientCG) + image-
 // based lighting; on desktop also ambient occlusion, bloom and real light shadows. ?gfx=fast = the old cheap look.
-const REAL = params.get('gfx') !== 'fast';
+const GFX = params.get('gfx') || 'medium';     // 'fast' = old cheap look, 'medium' (default) = photo textures + PBR + IBL, 'ultra' = + AO, bloom, light shadows
+const REAL = GFX !== 'fast', ULTRA = GFX === 'ultra';
 const LMat = REAL ? THREE.MeshStandardMaterial : THREE.MeshLambertMaterial;
 const _ptl = new THREE.TextureLoader(), _ptc = new Map();
 function ptex(id, kind, rx = 1, ry = rx) {    // textures/<ambientCG id>_{c,n,r}.jpg  (colour / normal / roughness)
@@ -558,7 +559,7 @@ let shadowKey = '', chunkGen = 0;
 function applyRenderBudget(vr = renderer.xr.isPresenting) {
   lightBudget = !LV || LV.light <= 0 ? 0 : Math.min(vr ? VR_LIGHTS : LIGHTS.length, LV.maxLights ?? LIGHTS.length);
   LIGHTS.forEach((l, i) => { l.visible = i < lightBudget;
-    const cs = REAL && !vr && i < 2 && i < lightBudget && !!LV && !LV.terrain;    // desktop realism: the two nearest lights cast real shadows
+    const cs = ULTRA && !vr && i < 2 && i < lightBudget && !!LV && !LV.terrain;    // desktop realism: the two nearest lights cast real shadows
     if (l.castShadow !== cs) { l.castShadow = cs; if (cs) { l.shadow.mapSize.set(512, 512); l.shadow.bias = -0.004; l.shadow.normalBias = 0.03; l.shadow.camera.near = 0.1; l.shadow.camera.far = 22; } }
   });
   lightShadowKey = '';
@@ -624,7 +625,7 @@ function realSurfaces(name) {
     photo(wallMat, 'Concrete046', 1, 1, { color: '#b3ab98' });
     photo(ceilMat, 'Concrete031', 96, 96, { color: '#7b7466' });
   } else if (name === 'level4') {                                             // worn blue-grey office carpet, plaster walls, ceiling tiles
-    photo(floorMat, 'Carpet012', 160, 160, { color: '#c9d0da' });
+    photo(floorMat, 'Carpet016', 160, 160, { color: '#8e9bad' });   // medium blue-grey office carpet (like the photo)
     photo(ceilMat, 'OfficeCeiling001', 192, 192, { keepMap: true, ns: 0.7 });
   }
 }
@@ -1350,7 +1351,7 @@ function buildChunk(cx, cz, st = 0) {
       }
     }
   }
-  group.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });  // real shadows on walls/pipes/columns/houses
+  group.traverse(o => { if (o.isMesh && !o.userData.noShadow) { o.castShadow = true; o.receiveShadow = true; } });  // real shadows on walls/pipes/columns/houses
   if (st) group.position.set(-SOFF * CELL, STORY, -SOFF * CELL);
   scene.add(group);
   return group;
@@ -2010,7 +2011,37 @@ function roads94Into(B, cx, cz) {
   }
   return { P, N, C, AP, AN, AU };
 }
+const grassBladeTex = (() => { const c = document.createElement('canvas'); c.width = 128; c.height = 128; const g = c.getContext('2d');
+  for (let k = 0; k < 34; k++) { const x = 6 + Math.random() * 116, top = 30 + Math.random() * 60, lean = (Math.random() - 0.5) * 26, w = 3 + Math.random() * 3.5, gr = g.createLinearGradient(0, 128, 0, top);
+    gr.addColorStop(0, '#5f8f38'); gr.addColorStop(0.6, '#7fb447'); gr.addColorStop(1, '#b4d877'); g.fillStyle = gr;
+    g.beginPath(); g.moveTo(x - w, 128); g.quadraticCurveTo(x + lean * 0.4, (128 + top) / 2, x + lean, top); g.quadraticCurveTo(x + lean * 0.4 + 1, (128 + top) / 2, x + w, 128); g.closePath(); g.fill(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+const grassBladeMat = new THREE.MeshLambertMaterial({ map: grassBladeTex, alphaTest: 0.5, side: THREE.DoubleSide });
+grassBladeMat.onBeforeCompile = sh => {    // wind: the tops sway, the roots stay put
+  sh.uniforms.uTime = { value: 0 }; grassBladeMat.userData.shader = sh;
+  sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+    float ph = instanceMatrix[3].x * 0.21 + instanceMatrix[3].z * 0.17;
+    transformed.x += sin(uTime * 1.6 + ph) * 0.09 * uv.y * uv.y; transformed.z += cos(uTime * 1.3 + ph) * 0.06 * uv.y * uv.y;`);
+};
+const grassClumpGeo = (() => { const a = new THREE.PlaneGeometry(0.7, 0.38); a.translate(0, 0.19, 0); const b = a.clone(); b.rotateY(Math.PI / 2); const c = a.clone(); c.rotateY(Math.PI / 4);
+  const g = new THREE.BufferGeometry(), parts = [a, b, c]; for (const k of ['position', 'normal', 'uv']) { const arr = []; for (const q of parts) arr.push(...(q.index ? q.toNonIndexed() : q).attributes[k].array); g.setAttribute(k, new THREE.Float32BufferAttribute(arr, k === 'uv' ? 2 : 3)); }
+  for (let k = 0; k < g.attributes.normal.count; k++) g.attributes.normal.setXYZ(k, 0, 1, 0);   // light the clumps like the ground they grow from
+  return g; })();
+function grass94(group, cx, cz) {
+  const S = T94.CH, x0 = cx * S, z0 = cz * S, objs = near94(x0 + S / 2, z0 + S / 2), pts = [];
+  for (let k = 0; k < 1100; k++) {
+    const x = x0 + hash(cx * 997 + k, cz, 960) * S, z = z0 + hash(cx, cz * 991 + k, 961) * S;
+    if (Math.hypot(x, z) < T94.PLAZA + 1.5 || distRoad94(x, z) < 3.4) continue;
+    let blocked = false; for (const o of objs) if ((o.k === 'house' || o.k === 'fountain' || o.k === 'furn') && Math.hypot(x - o.x, z - o.z) < (o.k === 'house' ? 3.6 : 4.6)) { blocked = true; break; }
+    if (!blocked) pts.push([x, z, k]);
+  }
+  const im = new THREE.InstancedMesh(grassClumpGeo, grassBladeMat, pts.length), m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), sc = new THREE.Vector3(), col = new THREE.Color();
+  pts.forEach(([x, z, k], n) => { const s = 0.7 + hash(k, cx + cz, 962) * 0.8; m.compose(v.set(x, h94(x, z) - 0.03, z), q.setFromEuler(e.set(0, hash(k, cz, 963) * 6.28, 0)), sc.set(s, s * (0.8 + hash(k, cx, 964) * 0.6), s)); im.setMatrixAt(n, m);
+    const sh = grassShade(x, z); col.setRGB(sh[0], sh[1], sh[2]).multiplyScalar(0.85 + hash(k, 1, 965) * 0.3); im.setColorAt(n, col); });
+  im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; im.computeBoundingSphere(); im.userData.noShadow = true; im.receiveShadow = true; group.add(im);
+}
 function buildChunk94(group, cx, cz) {
+  grass94(group, cx, cz);
   group.add(terrain94(cx, cz));
   const B = batch94(), R = roads94Into(B, cx, cz);
   for (const o of objects94(cx, cz)) addProp94(B, o, group);
@@ -2201,6 +2232,7 @@ function frame94(dt, time, xr, wx, wz) {
   camera.getWorldPosition(_cw); sky94.position.copy(_cw);
   if (Math.floor(time * 12) !== Math.floor((time - dt) * 12)) {     // stop-motion beat: clouds drift and the grain flickers on twelves
     sky94.userData.clouds.rotation.y += 0.0009; grainTex.offset.set(Math.random(), Math.random());
+    if (grassBladeMat.userData.shader) grassBladeMat.userData.shader.uniforms.uTime.value = time;   // the grass sways on the stop-motion beat too
     for (const [, g] of chunks) if (g.userData.fall) g.userData.fall.scale.y = 0.96 + Math.random() * 0.08;
   }
   updateFar94(wx, wz);
@@ -2225,10 +2257,10 @@ const _c94 = new THREE.Color();
 // are the level's real danger. Water coolers full of Almond Water, vending machines, the odd '90s
 // computer, printer and kettle. Doors and stairwells never lead back; elevators go to other floors.
 const R4 = 4, rid4 = i => Math.floor(i / R4), loc4 = i => ((i % R4) + R4) % R4;
-const edge4 = (rI, rJ, ax) => { const r = hash(rI, rJ, 410 + ax); return r < 0.16 ? 'open' : r < 0.46 ? 'window' : 'door'; };   // a room's +x (ax 0) / +z (ax 1) wall
+const edge4 = (rI, rJ, ax) => { const r = hash(rI, rJ, 410 + ax); return r < 0.42 ? 'open' : r < 0.78 ? 'window' : 'door'; };   // mostly open: huge halls like the photo   // a room's +x (ax 0) / +z (ax 1) wall
 const door4 = (rI, rJ, ax, l) => l === 1 || (l === 2 && hash(rI, rJ, 420 + ax) < 0.5);           // which cells along a door wall get a doorway
 const doorKind4 = (rI, rJ, ax, l) => { const r = hash(rI * 7 + l, rJ, 430 + ax); return r < 0.08 ? 'stairs' : r < 0.14 ? 'elevator' : 'open'; };
-const clearWin4 = (i, j, ax) => hash(i, j, 440 + ax) < 0.28;                                   // "most of them have been completely blacked out"
+const clearWin4 = (i, j, ax) => hash(i, j, 440 + ax) < 0.6;                                   // "most of them have been completely blacked out"
 const office4Cache = new Map();
 function office4Boxes(i, j) {     // collision + wall geometry for one cell: [x0,x1,y0,y1,z0,z1]
   const key = i + ',' + j; if (office4Cache.has(key)) return office4Cache.get(key);
@@ -2252,7 +2284,7 @@ function props4(i, j) {
   if (spawnOpen(i, j) && !(li === 0 && lj === 0)) return out;
   if (li === 0 && lj === 0 && hash(rI, rJ, 450) < 0.75) out.push({ k: 'cooler', x: x0 + 0.45, z: z0 + 0.45, box: [x0 + 0.17, x0 + 0.73, 0, 1.6, z0 + 0.17, z0 + 0.73] });      // Almond Water cooler in the corner
   if (li === 3 && lj === 0 && hash(rI, rJ, 451) < 0.3) out.push({ k: 'vend', x: x0 + 4.4, z: z0 + 0.55, box: [x0 + 3.9, x0 + 4.9, 0, 1.9, z0 + 0.12, z0 + 0.98] });
-  if (li === 1 && lj === 1 && hash(rI, rJ, 452) < 0.32) { out.push({ k: 'desk', x: x0 + 2.5, z: z0 + 2.5, rot: hash(rI, rJ, 453) < 0.5, box: [x0 + 1.7, x0 + 3.3, 0, 0.8, z0 + 2.1, z0 + 2.9] }); }
+  if (li === 1 && lj === 1 && hash(rI, rJ, 452) < 0.1) { out.push({ k: 'desk', x: x0 + 2.5, z: z0 + 2.5, rot: hash(rI, rJ, 453) < 0.5, box: [x0 + 1.7, x0 + 3.3, 0, 0.8, z0 + 2.1, z0 + 2.9] }); }
   if (li === 2 && lj === 0 && hash(rI, rJ, 454) < 0.18) out.push({ k: 'stack', x: x0 + 2.5, z: z0 + 0.5, box: [x0 + 2.2, x0 + 2.8, 0, 1.5, z0 + 0.2, z0 + 0.8] });     // stacked chairs against the wall
   if (h(455) < 0.07) out.push({ k: 'chair', x: x0 + 1 + h(456) * 3, z: z0 + 1 + h(457) * 3, ry: h(458) * 6.28 });                                                       // a lone chair left out
   if (li === 0 && lj === 3 && hash(rI, rJ, 459) < 0.5) out.push({ k: 'ext', x: x0 + 0.2, z: z0 + 4.2 });
@@ -2262,7 +2294,7 @@ function props4(i, j) {
 const officeWallTex = canvasTex(512, 512, (g, w, h) => {
   g.fillStyle = '#ecebe6'; g.fillRect(0, 0, w, h); speckle(g, w, h, 5000, 0.03, false);
   g.fillStyle = 'rgba(120,118,110,0.18)'; for (let x = 0; x < w; x += w / 2) g.fillRect(x, 0, 2, h);     // panel joints every 1.25 m
-  const bb = h * 0.05; g.fillStyle = '#9a6b42'; g.fillRect(0, h - bb, w, bb); g.fillStyle = 'rgba(255,230,190,0.25)'; g.fillRect(0, h - bb, w, 2);   // wooden boarding at the base
+  const bb = h * 0.045; g.fillStyle = '#c4c3bd'; g.fillRect(0, h - bb, w, bb); g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(0, h - bb, w, 2);   // wooden boarding at the base
   for (let i = 0; i < 6; i++) { const x = Math.random() * w, y = h * (0.6 + Math.random() * 0.3), r = 20 + Math.random() * 40, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, 'rgba(110,105,95,0.06)'); rg.addColorStop(1, 'rgba(110,105,95,0)'); g.fillStyle = rg; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
 });
 const officeWallMat = new LMat({ map: officeWallTex });
@@ -2272,13 +2304,16 @@ const officeCarpetTex = canvasTex(512, 512, (g, w, h) => {
   for (let i = 0; i < 4; i++) { const x = Math.random() * w, y = Math.random() * h, r = 60 + Math.random() * 80, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, 'rgba(150,155,160,0.08)'); rg.addColorStop(1, 'rgba(150,155,160,0)'); g.fillStyle = rg; g.fillRect(0, 0, w, h); }   // worn paths
 });
 // drop ceiling: 600 mm tiles, recessed light panels and vent grilles (one texture per 5 m cell)
-const officeCeilTex = canvasTex(512, 512, (g, w, h) => {
-  g.fillStyle = '#e7e6e1'; g.fillRect(0, 0, w, h); speckle(g, w, h, 12000, 0.06, false);
-  const n = 8, s = w / n; g.fillStyle = '#c9c8c2'; for (let k = 0; k <= n; k++) { g.fillRect(k * s - 1.5, 0, 3, h); g.fillRect(0, k * s - 1.5, w, 3); }   // T-bar grid
-  g.fillStyle = '#f4f3ee'; g.fillRect(2 * s + 3, 3 * s + 3, 2 * s - 6, 2 * s - 6); g.fillStyle = '#d8d7d0'; for (let k = 0; k < 6; k++) g.fillRect(2 * s + 10, 3 * s + 10 + k * 18, 2 * s - 20, 6);   // light panel diffuser
-  g.fillStyle = '#7b7c7a'; g.fillRect(6 * s + 10, 0.5 * s + 10, s - 20, s * 0.45); g.fillStyle = '#5a5b5a'; for (let k = 0; k < 5; k++) g.fillRect(6 * s + 14, 0.5 * s + 14 + k * 5, s - 28, 2);   // vent
+const officeCeilTex = canvasTex(512, 512, (g, w, h) => {      // like the photo: square tiles, long slot vents, a recessed panel
+  g.fillStyle = '#e4e3de'; g.fillRect(0, 0, w, h); speckle(g, w, h, 12000, 0.07, false);
+  const n = 8, s = w / n; g.fillStyle = '#c3c2bc'; for (let k = 0; k <= n; k++) { g.fillRect(k * s - 1.5, 0, 3, h); g.fillRect(0, k * s - 1.5, w, 3); }   // T-bar grid
+  for (let t = 0; t < n; t++) for (let u = 0; u < n; u++) { g.fillStyle = `rgba(120,118,110,${Math.random() * 0.06})`; g.fillRect(u * s + 2, t * s + 2, s - 4, s - 4); }   // slightly uneven tiles
+  g.fillStyle = '#7a7b79'; g.fillRect(0.5 * s, 1.4 * s, 2.2 * s, s * 0.16); g.fillRect(4.6 * s, 5.4 * s, 2.2 * s, s * 0.16);       // long slot vents
+  g.fillStyle = '#9a9b98'; for (let k = 0; k < 9; k++) { g.fillRect(0.5 * s + k * s * 0.24, 1.4 * s, 2, s * 0.16); g.fillRect(4.6 * s + k * s * 0.24, 5.4 * s, 2, s * 0.16); }
+  g.fillStyle = '#efeee9'; g.fillRect(2 * s + 3, 3 * s + 3, 2 * s - 6, 2 * s - 6); g.fillStyle = '#d6d5ce'; for (let k = 0; k < 6; k++) g.fillRect(2 * s + 10, 3 * s + 10 + k * 18, 2 * s - 20, 6);   // light panel diffuser
 });
 const officeCeilEmit = canvasTex(512, 512, (g, w, h) => { g.fillStyle = '#000'; g.fillRect(0, 0, w, h); const s = w / 8; g.fillStyle = '#fff'; g.fillRect(2 * s + 3, 3 * s + 3, 2 * s - 6, 2 * s - 6); });
+const sunPatch4 = new THREE.MeshBasicMaterial({ map: patchTex, color: '#fffaf0', transparent: true, opacity: 0.32, depthWrite: false, toneMapped: false, fog: true, polygonOffset: true, polygonOffsetFactor: -2 });
 // what the uncovered windows show: a bright, too-perfect sunny day with trees
 const windowViewTex = canvasTex(256, 256, (g, w, h) => {
   const sky = g.createLinearGradient(0, 0, 0, h * 0.62); sky.addColorStop(0, '#7fb6ec'); sky.addColorStop(1, '#d8ecfa'); g.fillStyle = sky; g.fillRect(0, 0, w, h);
@@ -2307,7 +2342,8 @@ function buildChunk4(group, cx, cz) {
           B.add(box, '#e8e8e2', at(am, 0.5, s * 0.22, 1.3, 0.55, 0.1)); for (let q = 0; q < 10; q++) B.add(box, '#d6d6cf', at(am - 0.6 + q * 0.133, 0.5, s * 0.28, 0.03, 0.5, 0.03));
           for (const e of [-1, 1]) B.add(box, '#c98a52', at(am + e * 0.98, 1.55, s * 0.2, 0.28, 1.7, 0.05));          // orange curtains (like the photo)
         }
-        if (clearWin4(i, j, ax)) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.45), windowViewMat); m.position.set(...W(am, 1.62, 0)); m.rotation.y = ry; const m2 = m.clone(); m2.rotation.y = ry + Math.PI; group.add(m, m2); }
+        if (clearWin4(i, j, ax)) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.45), windowViewMat); m.position.set(...W(am, 1.62, 0)); m.rotation.y = ry; const m2 = m.clone(); m2.rotation.y = ry + Math.PI; group.add(m, m2);
+          for (const sd of [-1, 1]) { const pt = new THREE.Mesh(new THREE.PlaneGeometry(ax === 0 ? 2.6 : 1.9, ax === 0 ? 1.9 : 2.6), sunPatch4); pt.rotation.x = -Math.PI / 2; pt.position.set(...W(am, 0.015, sd * 1.55)); group.add(pt); } }   // daylight pooling on the carpet
         else B.win(box, at(am, 1.62, 0, 1.6, 1.45, 0.05));                              // blacked out
       } else if (type === 'door' && door4(rI, rJ, ax, l)) {
         const kind = doorKind4(rI, rJ, ax, l);
@@ -2375,10 +2411,10 @@ function frame4(dt, xr) {
 function ding4() { if (!amb) return; const ctx = amb.ctx, t = ctx.currentTime; for (const [f, d] of [[1318.5, 0], [1046.5, 0.32]]) note94(ctx, ctx.destination, 'sine', 69 + 12 * Math.log2(f / 440), t + d, 1.2, 0.08); }
 LEVELS.level4 = {
   name: 'LEVEL 4 — ABANDONED OFFICE', ceil: officeCeilTex, ceilEmit: officeCeilEmit,    // Backrooms wiki: empty open-plan offices, blacked-out windows, Almond Water coolers
-  fog: new THREE.Color('#cfd0cb'), fogNear: 14, fogFar: 62,
-  hemiSky: '#f6f6f2', hemiGround: '#7d8590', hemi: 0.85, ambCol: '#ffffff', amb: 0.32,
-  lightCol: '#f3f5ff', light: 4.2, lightDist: 12, lightDecay: 2, sun: 0, flickRate: 0.015,
-  emissiveCol: '#ffffff', emissive: 1.05, water: false, office: true, env: 0.2,
+  fog: new THREE.Color('#b9bbb8'), fogNear: 16, fogFar: 70,                // dim, grey, overcast-daylight interior (the photo)
+  hemiSky: '#e9eef2', hemiGround: '#6f7782', hemi: 0.62, ambCol: '#f2f4f6', amb: 0.2,
+  lightCol: '#eef2ff', light: 2.4, lightDist: 11, lightDecay: 2, sun: 0, flickRate: 0.015,
+  emissiveCol: '#ffffff', emissive: 0.55, water: false, office: true, env: 0.2, realFill: 0.75,
 };
 // quiet HVAC air + a faint mains hum — "calming, yet tinged with nostalgia and hollowness"
 let hvac4 = null;
@@ -2424,7 +2460,7 @@ function outdoorEnv() {
 }
 // desktop post: ambient occlusion (contact shadows in corners / under things) + gentle bloom off the lights
 let composer = null, gtaoPass = null;
-if (REAL) {
+if (ULTRA) {
   composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(16, 16, { type: THREE.HalfFloatType, samples: 4 }));
   composer.addPass(new RenderPass(scene, camera));
   gtaoPass = new GTAOPass(scene, camera, innerWidth, innerHeight); gtaoPass.output = GTAOPass.OUTPUT.Default;
