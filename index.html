@@ -232,7 +232,10 @@ function poolShade(x, z) {
   const h = (a, b) => hash(a, b, 377), sm = t => t * t * (3 - 2 * t), L = THREE.MathUtils.lerp;
   const n = L(L(h(i, j), h(i + 1, j), sm(u)), L(h(i, j + 1), h(i + 1, j + 1), sm(u)), sm(v));
   const spawn = Math.max(0, 1 - Math.hypot(x, z) / 18);                       // the spawn room is always lit
-  return 0.07 + 0.93 * Math.max(spawn, THREE.MathUtils.smoothstep(n, 0.24, 0.52));
+  // a room with a spiral stair (either end of it) is always lit, so the stairs and shaft read clearly
+  const rI = Math.floor(x / S), rJ = Math.floor(z / S); let stair = 0;
+  if (isRotunda(rI, rJ) || isArrival(rI, rJ)) stair = 1 - THREE.MathUtils.smoothstep(Math.hypot(x - (rI * 3 + 1.5) * CELL, z - (rJ * 3 + 1.5) * CELL), 7, 11);
+  return 0.07 + 0.93 * Math.max(spawn, stair, THREE.MathUtils.smoothstep(n, 0.24, 0.52));
 }
 function tileMeshMerged(parts) {      // parts: [[P, N, U, '#tint'], ...] -> ONE mesh, colour = light/dark field x tint
   const P = [], N = [], U = [], C = [], c = new THREE.Color();
@@ -1066,7 +1069,7 @@ function addTube(P, N, U, ax, c, s0, s1, inset = 0) {
 // --- the spiral-stair rotunda: a round tiled tower in the middle cell of some open rooms ---
 const ROT = { COL: 0.85, RO: 2.05, HOLE: 2.3, PER: 16, RISE: 0.2, NS: 30, TH: 0.22, CURB: 0.45 };
 ROT.DPHI = Math.PI * 2 / ROT.PER; ROT.PHI0 = 0; ROT.HTOP = ROT.NS * ROT.RISE;              // 30 x 0.2 = 6 m = one storey
-ROT.PHI_LAND = ROT.PHI0 + ROT.NS * ROT.DPHI;       ROT.LANDW = 0.55;                    // the top landing (just past the last step) where you step off upstairs
+ROT.LANDW = 0.3; ROT.PHI_LAND = ROT.PHI0 + (ROT.NS - 1) * ROT.DPHI + ROT.LANDW - 0.05;                      // the top landing (just past the last step) where you step off upstairs
 const stairMat = new THREE.MeshLambertMaterial({ color: '#efede4' });                    // smooth, untiled white slabs
 const rotundaAt = (x, z) => { const i = Math.floor(x / CELL), j = Math.floor(z / CELL), rI = rID(i), rJ = rID(j);
   return isRotunda(rI, rJ) ? { cx: (rI * ROOM + 1) * CELL + CELL / 2, cz: (rJ * ROOM + 1) * CELL + CELL / 2 } : null; };
@@ -1099,7 +1102,7 @@ function buildSpiral(group, tP, tN, tU, eP, eN, eU, cx, cz, x0, z0) {
     pushGeo(sP, sN, sU, box, cx + rc * Math.sin(phi), h - TH / 2, cz + rc * Math.cos(phi), phi - Math.PI / 2, 0, 0, RO - COL + 0.05, TH, RO * DPHI * 1.06);
   }
   for (let q = -2; q <= 2; q++) {                                           // top landing: bridges the last step to the upstairs floor
-    const phi = ROT.PHI_LAND + q * ROT.LANDW / 2.5, rc = (COL + HOLE + 0.3) / 2;
+    const phi = ROT.PHI_LAND + q * ROT.LANDW / 2.5, rc = (COL + HOLE + 0.3) / 2;   // narrow bridge, so you can still see down the spiral
     pushGeo(sP, sN, sU, box, cx + rc * Math.sin(phi), STORY - TH / 2, cz + rc * Math.cos(phi), phi - Math.PI / 2, 0, 0, HOLE + 0.3 - COL, TH, (HOLE + 0.3) * ROT.LANDW / 2.5 * 1.15);
   }
   box.dispose(); group.add(geoMesh(sP, sN, sU, stairMat));
@@ -1963,7 +1966,7 @@ function frame(now) {
 }
 setLevel(LEVELS[params.get('level')] ? params.get('level') : 'level0'); // set materials/lighting/fog before the first frame
 renderer.setAnimationLoop(frame);   // drives both the normal page and the VR headset session
-if (params.get('debug') === '1') window.__bk = { renderer, scene, setLevel, LIGHTS, player, applyRenderBudget, l7, keys, isTunnel, tunnelAxis, isRotunda, ROT, ROOM, CELL, STORY };   // ?debug=1: handles for profiling/screenshots
+if (params.get('debug') === '1') window.__bk = { renderer, scene, setLevel, LIGHTS, player, applyRenderBudget, l7, keys, isTunnel, tunnelAxis, isRotunda, ROT, ROOM, CELL, STORY, poolShade };   // ?debug=1: handles for profiling/screenshots
 
 // for automated screenshots: ?entity=1 spawns one immediately
 if (params.get('entity') === '1') setTimeout(toggleEntity, 50);
