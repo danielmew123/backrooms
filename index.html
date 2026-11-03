@@ -662,7 +662,11 @@ function level2Boxes(i, j) {                                        // fill ever
 const ROOM = 3, COL_R = 0.72;   // 3 cells per room = tighter Poolrooms (walls closer together)
 const rID = i => Math.floor(i / ROOM);
 const loc = i => ((i % ROOM) + ROOM) % ROOM;
-const roomType = (rI, rJ) => { const r = hash(rI, rJ, 70); return r < 0.46 ? 'pool' : r < 0.78 ? 'columns' : 'open'; };
+const nearSpawnRoom = (rI, rJ) => rI >= -1 && rI <= 0 && rJ >= -1 && rJ <= 0;
+const roomType = (rI, rJ) => { const r = hash(rI, rJ, 70); return r < 0.42 ? 'pool' : r < 0.7 ? 'columns' : (r < 0.83 && !nearSpawnRoom(rI, rJ)) ? 'tunnel' : 'open'; };
+const tunnelAxis = (rI, rJ) => hash(rI, rJ, 77) < 0.5 ? 0 : 1;              // 0: tube runs along x, 1: along z
+const isTunnel = (rI, rJ, ax) => roomType(rI, rJ) === 'tunnel' && (ax === undefined || tunnelAxis(rI, rJ) === ax);
+const isRotunda = (rI, rJ) => roomType(rI, rJ) === 'open' && !nearSpawnRoom(rI, rJ) && hash(rI, rJ, 76) < 0.6;  // tiled tower with a spiral stair
 const cellRoom = (i, j) => roomType(rID(i), rID(j));
 const hasPool = t => t === 'pool' || t === 'columns';
 const inner = i => loc(i) >= 1 && loc(i) <= ROOM - 2;
@@ -695,11 +699,14 @@ function pushDoorWall(b, axis, c, s0, s1, gc, T, HY) {
 function wallBoxes(i, j) {
   const b = []; if (spawnOpen(i, j)) return b;
   const x0 = i * CELL, z0 = j * CELL, x1 = x0 + CELL, z1 = z0 + CELL, T = 0.14, HY = 2.35;
+  const rI = rID(i), rJ = rID(j);
   if (loc(i) === ROOM - 1) {                                               // +x room boundary
-    if (hash(rID(i), rID(j), 80) >= 0.15) pushDoorWall(b, 0, x1, z0, z1, rID(j) * ROOM * CELL + ROOM * CELL / 2, T, HY); // a few open fully into a bigger hall
+    if (isTunnel(rI, rJ, 1) || isTunnel(rI + 1, rJ, 1)) b.push([x1 - T, x1 + T, 0, WALL_H, z0, z1]);              // beside a z-running tube: solid
+    else if (isTunnel(rI, rJ, 0) || isTunnel(rI + 1, rJ, 0) || hash(rI, rJ, 80) >= 0.15) pushDoorWall(b, 0, x1, z0, z1, rJ * ROOM * CELL + ROOM * CELL / 2, T, HY); // a few open fully into a bigger hall
   }
   if (loc(j) === ROOM - 1) {                                               // +z room boundary
-    if (hash(rID(i), rID(j), 81) >= 0.15) pushDoorWall(b, 1, z1, x0, x1, rID(i) * ROOM * CELL + ROOM * CELL / 2, T, HY);
+    if (isTunnel(rI, rJ, 0) || isTunnel(rI, rJ + 1, 0)) b.push([x0, x1, 0, WALL_H, z1 - T, z1 + T]);
+    else if (isTunnel(rI, rJ, 1) || isTunnel(rI, rJ + 1, 1) || hash(rI, rJ, 81) >= 0.15) pushDoorWall(b, 1, z1, x0, x1, rI * ROOM * CELL + ROOM * CELL / 2, T, HY);
   }
   return b;
 }
@@ -708,6 +715,14 @@ function cellBoxes(i, j) {
   const key = i + ',' + j; let b = cellCache.get(key); if (b) return b;
   if (currentLevel === 'pool') {
     b = wallBoxes(i, j);
+    { const rI = rID(i), rJ = rID(j);
+      if (isTunnel(rI, rJ)) {
+        const ax = tunnelAxis(rI, rJ), x0 = i * CELL, z0 = j * CELL, c = (ax === 0 ? rJ : rI) * ROOM * CELL + ROOM * CELL / 2, w = TUBE_HW;
+        if (ax === 0) { b.push([x0, x0 + CELL, 0, WALL_H, Math.max(z0, c - 8), Math.min(z0 + CELL, c - w)]); b.push([x0, x0 + CELL, 0, WALL_H, Math.max(z0, c + w), Math.min(z0 + CELL, c + 8)]); }
+        else { b.push([Math.max(x0, c - 8), Math.min(x0 + CELL, c - w), 0, WALL_H, z0, z0 + CELL]); b.push([Math.max(x0, c + w), Math.min(x0 + CELL, c + 8), 0, WALL_H, z0, z0 + CELL]); }
+        b = b.filter(q => q[1] > q[0] && q[5] > q[4]);
+      }
+    }
     if (isColumnCell(i, j)) { const cx = i * CELL + CELL / 2, cz = j * CELL + CELL / 2, r = COL_R * 0.72; b.push([cx - r, cx + r, 0, WALL_H, cz - r, cz + r]); }
   } else if (currentLevel === 'level2') b = level2Boxes(i, j);
   else if (currentLevel === 'level7') { const x0 = i * CELL, z0 = j * CELL; b = FORT_BOXES.filter(f => f[1] > x0 - 0.5 && f[0] < x0 + CELL + 0.5 && f[5] > z0 - 0.5 && f[4] < z0 + CELL + 0.5); } // open water; the fort's walls block you
@@ -1002,8 +1017,95 @@ function rebuildPoolWater() {
   if (!poolWater.userData.flood) { poolWater.geometry.dispose(); poolWater.geometry = new THREE.PlaneGeometry(240, 240); poolWater.userData.flood = true; }
   poolWater.visible = currentLevel === 'pool';
 }
-// ground height under you in the Poolrooms: 0 on the flooded floor, -depth in a pit, the step top on stairs
-function poolGround(x, z) {
+// --- round tunnels: the tube's cross-section IS the doorway arch, so it meets the arches seamlessly ---
+const TUBE_HW = 1.5, TUBE_SP = 1.9, TUBE_TOP = 2.82;
+const TUBE_PROFILE = (() => { const pts = [[-TUBE_HW, 0], [-TUBE_HW, TUBE_SP]];
+  for (let k = 1; k < 24; k++) { const a = Math.PI - k / 24 * Math.PI; pts.push([Math.cos(a) * TUBE_HW, TUBE_SP + Math.sin(a) * (TUBE_TOP - TUBE_SP)]); }
+  pts.push([TUBE_HW, TUBE_SP], [TUBE_HW, 0]); return pts; })();
+// one tube segment from s0 to s1 along the axis (ax 0: x, 1: z), centred on c; optional inset rib (ring) at sr
+function addTube(P, N, U, ax, c, s0, s1, inset = 0) {
+  const pr = TUBE_PROFILE, W = (u, y, sv) => ax === 0 ? [sv, y, c + u] : [c + u, y, sv];
+  let arc = 0;
+  for (let k = 0; k < pr.length - 1; k++) {
+    const [u0, y0] = pr[k], [u1, y1] = pr[k + 1], seg = Math.hypot(u1 - u0, y1 - y0);
+    let nu = -(y1 - y0), ny = (u1 - u0); const nl = Math.hypot(nu, ny) || 1; nu /= nl; ny /= nl;   // inward normal
+    const o0 = [u0 + nu * inset, y0 + ny * inset], o1 = [u1 + nu * inset, y1 + ny * inset];
+    const q = [W(o0[0], o0[1], s0), W(o1[0], o1[1], s0), W(o1[0], o1[1], s1), W(o0[0], o0[1], s0), W(o1[0], o1[1], s1), W(o0[0], o0[1], s1)];
+    const n3 = ax === 0 ? [0, ny, nu] : [nu, ny, 0], uv = [[arc, s0], [arc + seg, s0], [arc + seg, s1], [arc, s0], [arc + seg, s1], [arc, s1]];
+    q.forEach((v, idx) => { P.push(...v); N.push(...n3); U.push(uv[idx][0] / 2.5, uv[idx][1] / 2.5); });
+    if (inset) for (const sv of [s0, s1]) {                                     // rib faces
+      const sgn = sv === s0 ? -1 : 1, nn = ax === 0 ? [sgn, 0, 0] : [0, 0, sgn];
+      const f = [W(u0, y0, sv), W(u1, y1, sv), W(o1[0], o1[1], sv), W(u0, y0, sv), W(o1[0], o1[1], sv), W(o0[0], o0[1], sv)];
+      f.forEach(v => { P.push(...v); N.push(...nn); U.push((ax === 0 ? v[2] : v[0]) / 2.5, v[1] / 2.5); });
+    }
+    arc += seg;
+  }
+}
+// --- the spiral-stair rotunda: a round tiled tower in the middle cell of some open rooms ---
+const ROT = { R: 2.4, RI: 0.55, RO: 2.33, NEWEL: 0.42, PER: 18, RISE: 0.22, NS: 40, TH: 0.17, TOP: 11.6, GAP: 0.32 };
+ROT.DPHI = Math.PI * 2 / ROT.PER; ROT.PHI0 = Math.PI / 2 + ROT.GAP + 0.12; ROT.HTOP = ROT.NS * ROT.RISE;
+const rotundaAt = (x, z) => { const i = Math.floor(x / CELL), j = Math.floor(z / CELL), rI = rID(i), rJ = rID(j);
+  return isRotunda(rI, rJ) ? { cx: (rI * ROOM + 1) * CELL + CELL / 2, cz: (rJ * ROOM + 1) * CELL + CELL / 2 } : null; };
+const isRotundaCell = (i, j) => loc(i) === 1 && loc(j) === 1 && isRotunda(rID(i), rID(j));
+const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+function stairTops(phi) {           // all step-top heights at angle phi (one per turn of the helix; landing past the last step)
+  const sF = (((phi - ROT.PHI0) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) / ROT.DPHI, out = [];
+  for (let n = 0; ; n++) { const k = Math.floor(sF) + n * ROT.PER; if (k >= ROT.NS + 4) break; out.push(Math.min(ROT.NS, k + 1) * ROT.RISE); }
+  return out;
+}
+function buildRotunda(tP, tN, tU, hP, hN, hU, eP, eN, eU, Q, Qu, cx, cz, x0, z0) {
+  const { R, RI, RO, NEWEL, PER, RISE, NS, TH, TOP, GAP, DPHI, PHI0, HTOP } = ROT;
+  const cyl = (r, h, y, th0, thL, segs) => { const g = new THREE.CylinderGeometry(r, r, h, segs, 1, true, th0, thL), uv = g.attributes.uv;
+    for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) * r * thL / 2.5, uv.getY(k) * h / 2.5); pushGeo(tP, tN, tU, g, cx, y, cz); g.dispose(); };
+  cyl(R, WALL_H, WALL_H / 2, Math.PI / 2 + GAP, Math.PI * 2 - 2 * GAP, 44);      // tower wall with the entrance gap (+x side)
+  cyl(R, WALL_H - 2.25, 2.25 + (WALL_H - 2.25) / 2, Math.PI / 2 - GAP, 2 * GAP, 6); // header over the entrance
+  cyl(R, TOP - WALL_H, (TOP + WALL_H) / 2, 0, Math.PI * 2, 44);                // the shaft rising above the ceiling
+  cyl(NEWEL, TOP, TOP / 2, 0, Math.PI * 2, 18);                                // central newel column
+  { const g = new THREE.RingGeometry(1.0, R, 40), uv = g.attributes.uv; for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) * 2, uv.getY(k) * 2);
+    pushGeo(tP, tN, tU, g, cx, TOP, cz, 0, Math.PI / 2); g.dispose(); }        // shaft cap (faces down) around a skylight
+  // ceiling of this cell, with the round hole the shaft rises through
+  { const sh = new THREE.Shape([new THREE.Vector2(x0 - cx, z0 - cz), new THREE.Vector2(x0 + CELL - cx, z0 - cz), new THREE.Vector2(x0 + CELL - cx, z0 + CELL - cz), new THREE.Vector2(x0 - cx, z0 + CELL - cz)]);
+    const hole = new THREE.Path(); hole.absarc(0, 0, R, 0, Math.PI * 2, true); sh.holes.push(hole);
+    const g = new THREE.ShapeGeometry(sh, 24), uv = g.attributes.uv; for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) / 2.5, uv.getY(k) / 2.5);
+    pushGeo(eP, eN, eU, g, cx, WALL_H, cz, 0, Math.PI / 2); g.dispose(); }
+  // cantilevered tiled steps spiralling up the wall, then a landing
+  const step = new THREE.BoxGeometry(1, 1, 1);
+  for (let k = 0; k < NS + 4; k++) {
+    const phi = PHI0 + (k + 0.5) * DPHI, h = Math.min(NS, k + 1) * RISE, rc = (RI + RO) / 2;
+    const g = step.clone(), uv = g.attributes.uv; for (let q = 0; q < uv.count; q++) uv.setXY(q, uv.getX(q) * 0.7, uv.getY(q) * 0.3);
+    pushGeo(tP, tN, tU, g, cx + rc * Math.sin(phi), h - TH / 2, cz + rc * Math.cos(phi), phi - Math.PI / 2, 0, 0, RO - RI, TH, RO * DPHI * 1.04); g.dispose();
+  }
+  step.dispose();
+  // chrome handrail following the helix on the inside edge
+  class Helix extends THREE.Curve { getPoint(t, out = new THREE.Vector3()) { const k = t * NS, phi = PHI0 + (k + 0.5) * DPHI; return out.set(cx + (RI + 0.12) * Math.sin(phi), (k + 1) * RISE + 0.92, cz + (RI + 0.12) * Math.cos(phi)); } }
+  const rail = new THREE.TubeGeometry(new Helix(), NS * 4, 0.026, 6, false); pushGeo(hP, hN, hU, rail, 0, 0, 0); rail.dispose();
+  // the top: a dark doorway out of the shaft that leads nowhere, and daylight pouring in from the skylight
+  { const phi = PHI0 + (NS + 2) * DPHI, g = new THREE.PlaneGeometry(1.1, 2.1);
+    const m = new THREE.Mesh(g, voidMat); m.position.set(cx + (R - 0.02) * Math.sin(phi), HTOP + 1.05, cz + (R - 0.02) * Math.cos(phi)); m.rotation.y = phi + Math.PI; return m; }
+}
+function collideRotunda(ro, px0, pz0) {   // round tower wall (enter only through the gap, at floor level) + newel
+  const R = ROT.R, dx = player.pos.x - ro.cx, dz = player.pos.z - ro.cz, r = Math.hypot(dx, dz) || 1e-6;
+  const rp = Math.hypot(px0 - ro.cx, pz0 - ro.cz), inGap = Math.abs(angDiff(Math.atan2(dx, dz), Math.PI / 2)) < ROT.GAP - 0.1 && l7.F < 1.0;
+  let tr = null;
+  if (rp < R) { if (r > R - 0.3 && !inGap) tr = R - 0.3; if (r < ROT.NEWEL + 0.3) tr = ROT.NEWEL + 0.3; }
+  else if (r < R + 0.3 && !inGap) tr = R + 0.3;
+  if (tr !== null) { player.pos.x = ro.cx + dx / r * tr; player.pos.z = ro.cz + dz / r * tr; }
+}
+function spiralHead(x, z, F) {             // would you walk into the underside of a step above you?
+  const ro = rotundaAt(x, z); if (!ro) return false;
+  const dx = x - ro.cx, dz = z - ro.cz, r = Math.hypot(dx, dz); if (r < ROT.RI - 0.1 || r > ROT.R) return false;
+  for (const h of stairTops(Math.atan2(dx, dz))) if (h > F + 0.45 && h - ROT.TH < F + 1.85) return true;
+  return false;
+}
+const skyMat = new THREE.MeshBasicMaterial({ color: '#fffdf4', toneMapped: false, fog: false, side: THREE.DoubleSide });
+// ground height under you in the Poolrooms: 0 on the flooded floor, -depth in a pit, the step top on stairs,
+// or (in a rotunda) the highest step of the spiral you can step onto from where you are now
+function poolGround(x, z, F = 0) {
+  const ro = rotundaAt(x, z);
+  if (ro) { const dx = x - ro.cx, dz = z - ro.cz, r = Math.hypot(dx, dz);
+    if (r > ROT.RI - 0.1 && r < ROT.R) { let g = 0; for (const h of stairTops(Math.atan2(dx, dz))) if (h <= F + 0.45 && h > g) g = h; return g; }
+    if (r <= ROT.RI - 0.1) return 0;
+  }
   const i = Math.floor(x / CELL), j = Math.floor(z / CELL); if (!isDeep(i, j)) return 0;
   const pd = cellDepth(i, j), rI = rID(i), rJ = rID(j), x0 = i * CELL, z0 = j * CELL;
   if (hasStairs(rI, rJ)) {
@@ -1037,7 +1139,20 @@ function buildChunk(cx, cz) {
     const rail = new THREE.CylinderGeometry(0.022, 0.022, 1, 8), knob = new THREE.SphereGeometry(0.03, 8, 6);
     for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) {
       const x0 = i * CELL, z0 = j * CELL, x1 = x0 + CELL, z1 = z0 + CELL, sh = poolShade(x0 + CELL / 2, z0 + CELL / 2);
-      addQuadY(eP, eN, eU, x0, x1, z0, z1, WALL_H, false);                       // tiled ceiling (per cell, so dark rooms are dark overhead too)
+      const rotC = isRotundaCell(i, j);
+      if (!rotC) addQuadY(eP, eN, eU, x0, x1, z0, z1, WALL_H, false);            // tiled ceiling (per cell, so dark rooms are dark overhead too)
+      else {                                                                     // spiral-stair tower
+        const cxr = x0 + CELL / 2, czr = z0 + CELL / 2;
+        group.add(buildRotunda(tP, tN, tU, hP, hN, hU, eP, eN, eU, Q, Qu, cxr, czr, x0, z0));
+        const sk = new THREE.Mesh(new THREE.CircleGeometry(1.0, 32), skyMat); sk.position.set(cxr, ROT.TOP + 0.01, czr); sk.rotation.x = Math.PI / 2; group.add(sk);
+        addPatch(Q, Qu, 2, 0.01, cxr - 1.2, 1.3, czr + 0.2, 1.1, 0.5);           // the skylight's patch of daylight on the water at the bottom
+      }
+      { const rI = rID(i), rJ = rID(j);                                         // round tunnel through this room
+        if (isTunnel(rI, rJ)) { const ax = tunnelAxis(rI, rJ), c = (ax === 0 ? rJ : rI) * ROOM * CELL + ROOM * CELL / 2;
+          if ((ax === 0 ? loc(j) : loc(i)) === 1) { const s0 = ax === 0 ? x0 : z0;
+            addTube(tP, tN, tU, ax, c, s0, s0 + CELL);
+            for (const sr of [s0 + 1.1, s0 + 3.6]) addTube(tP, tN, tU, ax, c, sr, sr + 0.28, 0.13);   // concentric ribs receding down the tube
+          } } }
       if (isDeep(i, j)) {                                                       // a pit under the flood (some with stairs straight down into it)
         const pd = cellDepth(i, j), deepM = pd > 2 ? kP : bP, deepN = pd > 2 ? kN : bN, deepU = pd > 2 ? kU : bU;
         const rI = rID(i), rJ = rID(j), stair = hasStairs(rI, rJ) ? stairSide(rI, rJ) : -1;
@@ -1595,11 +1710,12 @@ function frame(now) {
   if (LV.flood) {
     // pits: you can step or fall in, but "some open water areas have no ledges to climb out onto" —
     // you can't haul yourself up a sheer pit wall; only stairs (or walking along the floor) get you out
-    const tooHigh = (x, z) => poolGround(x, z) > l7.F + 0.45;
+    const ro = rotundaAt(player.pos.x, player.pos.z) || rotundaAt(px0, pz0); if (ro) collideRotunda(ro, px0, pz0);
+    const tooHigh = (x, z) => poolGround(x, z, l7.F) > l7.F + 0.45 || spiralHead(x, z, l7.F);
     if (tooHigh(player.pos.x, player.pos.z)) {
       if (!tooHigh(player.pos.x, pz0)) player.pos.z = pz0; else if (!tooHigh(px0, player.pos.z)) player.pos.x = px0; else { player.pos.x = px0; player.pos.z = pz0; }
     }
-    waterPhysics(dt, time, xr, poolGround, POOL_WATER);
+    waterPhysics(dt, time, xr, (x, z) => poolGround(x, z, l7.F), POOL_WATER);
   }
   const baseY = l7.phase === 'sea' || LV.flood ? l7.F : 0;                    // feet height (Level 7 ocean: treading water / on an island)
   const wx = l7.phase === 'room' ? 0 : player.pos.x, wz = l7.phase === 'room' ? 0 : player.pos.z;  // where you are in the world (the room hangs over 0,0)
@@ -1742,7 +1858,7 @@ function frame(now) {
     const free = freeDistance(head, tmp, dist + 0.3);
     const d = Math.max(0.4, Math.min(dist, free - 0.3));
     camera.position.copy(head).addScaledVector(tmp, d);
-    camera.position.y = Math.min(camera.position.y, l7.phase === 'room' ? R7.H - 0.15 : LV.ocean ? SEA_CEIL - 0.2 : WALL_H - 0.2);
+    camera.position.y = Math.min(camera.position.y, l7.phase === 'room' ? R7.H - 0.15 : LV.ocean ? SEA_CEIL - 0.2 : LV.flood && rotundaAt(player.pos.x, player.pos.z) ? ROT.TOP - 0.3 : WALL_H - 0.2);
     if (mode === 'tp') camera.position.addScaledVector(right, 0.35 * d / dist);
     _lt.set(head.x, head.y + (mode === 'selfie' ? 0.02 : 0.05), head.z);
     camera.quaternion.setFromRotationMatrix(_lm.lookAt(camera.position, _lt, camera.up));   // local-frame lookAt (also right inside the sideways room)
@@ -1784,7 +1900,7 @@ function frame(now) {
 }
 setLevel(LEVELS[params.get('level')] ? params.get('level') : 'level0'); // set materials/lighting/fog before the first frame
 renderer.setAnimationLoop(frame);   // drives both the normal page and the VR headset session
-if (params.get('debug') === '1') window.__bk = { renderer, scene, setLevel, LIGHTS, player, applyRenderBudget, l7, keys };   // ?debug=1: handles for profiling/screenshots
+if (params.get('debug') === '1') window.__bk = { renderer, scene, setLevel, LIGHTS, player, applyRenderBudget, l7, keys, isTunnel, tunnelAxis, isRotunda, ROT, ROOM, CELL };   // ?debug=1: handles for profiling/screenshots
 
 // for automated screenshots: ?entity=1 spawns one immediately
 if (params.get('entity') === '1') setTimeout(toggleEntity, 50);
