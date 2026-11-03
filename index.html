@@ -80,8 +80,31 @@ import * as THREE from 'three';
 import { Water } from 'three/addons/objects/Water.js'; // three.js's reflective water
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'; // procedural env for realistic PBR reflections
 import { VRButton } from 'three/addons/webxr/VRButton.js'; // WebXR "Enter VR" button for Quest etc.
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';   // desktop realism: ambient occlusion + bloom
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 const params = new URLSearchParams(location.search);
+// Realistic graphics (default): physically based materials + photographic CC0 textures (ambientCG) + image-
+// based lighting; on desktop also ambient occlusion, bloom and real light shadows. ?gfx=fast = the old cheap look.
+const REAL = params.get('gfx') !== 'fast';
+const LMat = REAL ? THREE.MeshStandardMaterial : THREE.MeshLambertMaterial;
+const _ptl = new THREE.TextureLoader(), _ptc = new Map();
+function ptex(id, kind, rx = 1, ry = rx) {    // textures/<ambientCG id>_{c,n,r}.jpg  (colour / normal / roughness)
+  const key = id + kind + rx + ',' + ry; if (_ptc.has(key)) return _ptc.get(key);
+  const t = _ptl.load('textures/' + id + '_' + kind + '.jpg'); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry); t.anisotropy = 8;
+  t.colorSpace = kind === 'c' ? THREE.SRGBColorSpace : THREE.NoColorSpace; _ptc.set(key, t); return t;
+}
+function photo(mat, id, rx, ry = rx, opts = {}) {   // put a photographic PBR set on an existing material
+  if (!REAL) return mat;
+  if (opts.keepMap) { /* keep the hand-made colour map (patterns / baked lights), add the photo's surface relief */ } else mat.map = ptex(id, 'c', rx, ry);
+  mat.normalMap = ptex(id, 'n', rx, ry); mat.roughnessMap = ptex(id, 'r', rx, ry);
+  if (opts.color) mat.color.set(opts.color); if (opts.rough != null) mat.roughness = opts.rough; if (opts.metal != null) mat.metalness = opts.metal;
+  if (opts.ns) mat.normalScale.set(opts.ns, opts.ns);
+  mat.needsUpdate = true; return mat;
+}
 const CELL = 5, WALL_H = 3, CHUNK = 6, VIEW_CHUNKS = 2;
 const SEED = (parseInt(params.get('seed') || '1337', 10)) | 0;
 
@@ -218,12 +241,12 @@ function causticTex(size) {
 const poolCausticTex = causticTex(128); poolCausticTex.repeat.set(1.3, 1.3);        // used ONLY by the projected caustic overlay, never baked into a tile
 // Poolrooms tile materials — these are plain tiles, nothing else painted on
 // (vertexColors = the baked light/dark field: most rooms bright, some fall completely dark — see poolShade)
-const poolTileMat  = new THREE.MeshLambertMaterial({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true });
-const poolDeckMat  = new THREE.MeshLambertMaterial({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true, color: '#e6ece4' });  // flooded floor
-const poolCeilMat  = new THREE.MeshLambertMaterial({ map: poolCeilTex, side: THREE.DoubleSide, vertexColors: true });
-const poolDeepMat  = new THREE.MeshLambertMaterial({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true, color: '#7fa39b' });   // deep pits read darker
-const poolBasinMat = new THREE.MeshLambertMaterial({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true, color: '#bcd3cb' });  // pit floors/walls (no glow — the light comes from above)
-const poolColMat   = new THREE.MeshLambertMaterial({ map: poolColTex });
+const poolTileMat  = new LMat({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true });
+const poolDeckMat  = new LMat({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true, color: '#e6ece4' });  // flooded floor
+const poolCeilMat  = new LMat({ map: poolCeilTex, side: THREE.DoubleSide, vertexColors: true });
+const poolDeepMat  = new LMat({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true, color: '#7fa39b' });   // deep pits read darker
+const poolBasinMat = new LMat({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true, color: '#bcd3cb' });  // pit floors/walls (no glow — the light comes from above)
+const poolColMat   = new LMat({ map: poolColTex });
 // additive caustic LIGHT, drawn only on the submerged pool floor
 const poolCausticMat = new THREE.MeshBasicMaterial({ map: poolCausticTex, color: 0x9fdccd, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, vertexColors: true, toneMapped: false, side: THREE.DoubleSide }); // bright cyan caustics
 const POOL_DEPTH = 1.3, POOL_WATER = 0.32; // Level 37 is FLOODED: tiled floor at y=0 under shin-deep water everywhere; pits sink below
@@ -258,7 +281,7 @@ const patchTex = (() => { const c = document.createElement('canvas'); c.width = 
   g.filter = 'blur(7px)'; g.fillStyle = '#fff'; g.fillRect(16, 16, 96, 96);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
 const patchMat = new THREE.MeshBasicMaterial({ map: patchTex, color: '#fffaf0', transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false, fog: true, polygonOffset: true, polygonOffsetFactor: -2, side: THREE.DoubleSide });
-const chromeMat = new THREE.MeshPhongMaterial({ color: '#cfd5d8', specular: '#ffffff', shininess: 90 });
+const chromeMat = REAL ? new THREE.MeshStandardMaterial({ color: '#dfe4e8', metalness: 1, roughness: 0.12 }) : new THREE.MeshPhongMaterial({ color: '#cfd5d8', specular: '#ffffff', shininess: 90 });   // polished chrome
 // rounded arch over a 3 m doorway (wall-thick), shared geometry; UVs scaled to tile units
 let _arch = null;
 function archGeo() {
@@ -310,7 +333,7 @@ const concCeilTex = canvasTex(512, 512, (g, w, h) => {
   for (let i = 0; i <= 4; i++) { const p = i * w / 4; g.beginPath(); g.moveTo(p, 0); g.lineTo(p, h); g.stroke(); g.beginPath(); g.moveTo(0, p); g.lineTo(w, p); g.stroke(); }
   for (let i = 0; i < 12; i++) { const x = Math.random() * w, y = Math.random() * h, r = 20 + Math.random() * 50, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, 'rgba(16,15,12,0.32)'); rg.addColorStop(1, 'rgba(16,15,12,0)'); g.fillStyle = rg; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
 });
-const pipeMat = new THREE.MeshLambertMaterial({ color: '#746b5c' });
+const pipeMat = new LMat({ color: '#746b5c' });
 const pipeGeo = new THREE.CylinderGeometry(1, 1, 1, 9);
 const bulbMat = new THREE.MeshBasicMaterial({ color: '#ffdf9c', fog: true }); // self-lit fixture — always reads as "on", even far down the hall
 const bulbGeo = new THREE.BoxGeometry(0.9, 0.07, 0.32);
@@ -373,25 +396,25 @@ const woodDraw = (base, dark) => (g, w, h) => {
 };
 const woodTex = canvasTex(256, 256, woodDraw('#5a4330', '28,18,10'));
 const plankTex = canvasTex(256, 256, woodDraw('#6b6354', '34,30,24'));
-const roomWallMat = new THREE.MeshLambertMaterial({ map: roomWallTex });
+const roomWallMat = new LMat({ map: roomWallTex });
 const carpet7Tex = carpetTex.clone(); carpet7Tex.repeat.set(1, 1); carpet7Tex.needsUpdate = true;
-const roomCarpetMat = new THREE.MeshLambertMaterial({ map: carpet7Tex, color: '#8f8672' });        // soaked carpet reads darker
+const roomCarpetMat = new LMat({ map: carpet7Tex, color: '#8f8672' });        // soaked carpet reads darker
 const roomCeilTex = ceilTex.clone(); roomCeilTex.repeat.set(1, 1); roomCeilTex.needsUpdate = true;
-const roomCeilMat = new THREE.MeshLambertMaterial({ map: roomCeilTex, color: '#bdb7a2' });
-const woodMat = new THREE.MeshLambertMaterial({ map: woodTex });
-const trimMat = new THREE.MeshLambertMaterial({ map: woodTex, color: '#9a8a74' });
-const plankMat = new THREE.MeshLambertMaterial({ map: plankTex });
-const tarMat = new THREE.MeshPhongMaterial({ color: '#060605', specular: '#3c3c38', shininess: 70 });   // glossy black tar
-const rockMat = new THREE.MeshLambertMaterial({ map: rockTex });
-const seaCeilMat = new THREE.MeshLambertMaterial({ map: seaCeilTex });
-const lampHousingMat = new THREE.MeshLambertMaterial({ color: '#cfcabc' });
+const roomCeilMat = new LMat({ map: roomCeilTex, color: '#bdb7a2' });
+const woodMat = new LMat({ map: woodTex });
+const trimMat = new LMat({ map: woodTex, color: '#9a8a74' });
+const plankMat = new LMat({ map: plankTex });
+const tarMat = REAL ? new THREE.MeshStandardMaterial({ color: '#060605', roughness: 0.22 }) : new THREE.MeshPhongMaterial({ color: '#060605', specular: '#3c3c38', shininess: 70 });   // glossy black tar
+const rockMat = new LMat({ map: rockTex });
+const seaCeilMat = new LMat({ map: seaCeilTex });
+const lampHousingMat = new LMat({ color: '#cfcabc' });
 const tubeMat = new THREE.MeshBasicMaterial({ color: '#f2f3e6', fog: true });
 const voidMat = new THREE.MeshBasicMaterial({ color: '#000000', fog: false });                        // the unlit stairwell up to Level 6
-const paperMat = new THREE.MeshLambertMaterial({ color: '#c9c2a8' });
-const mugMat = new THREE.MeshLambertMaterial({ color: '#d6d0c2' });
-const bookMat = new THREE.MeshLambertMaterial({ color: '#ffffff' });                                   // per-instance colours
+const paperMat = new LMat({ color: '#c9c2a8' });
+const mugMat = new LMat({ color: '#d6d0c2' });
+const bookMat = new LMat({ color: '#ffffff' });                                   // per-instance colours
 const puddleNormal = poolNormalTex.clone(); puddleNormal.repeat.set(3, 3); puddleNormal.needsUpdate = true;
-const puddleMat = new THREE.MeshPhongMaterial({ color: '#3b3d35', specular: '#8f9088', shininess: 160, transparent: true, opacity: 0.32, normalMap: puddleNormal, normalScale: new THREE.Vector2(0.22, 0.22), depthWrite: false });
+const puddleMat = REAL ? new THREE.MeshStandardMaterial({ color: '#3b3d35', roughness: 0.04, transparent: true, opacity: 0.45, normalMap: puddleNormal, normalScale: new THREE.Vector2(0.22, 0.22), depthWrite: false }) : new THREE.MeshPhongMaterial({ color: '#3b3d35', specular: '#8f9088', shininess: 160, transparent: true, opacity: 0.32, normalMap: puddleNormal, normalScale: new THREE.Vector2(0.22, 0.22), depthWrite: false });
 // Merge many small transformed pieces into ONE mesh per material (furniture, fort) — keeps draw calls low.
 function makeBatch() {
   const acc = new Map(), m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), pv = new THREE.Vector3(), sv = new THREE.Vector3();
@@ -416,7 +439,7 @@ function makeBatch() {
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25)); // cap render resolution — full Retina/2x is a big GPU cost (esp. in VR, rendered twice) for little visible gain
 renderer.toneMapping = THREE.ACESFilmicToneMapping;   // filmic highlight rolloff instead of harsh clipping -> more realistic light response
-renderer.toneMappingExposure = 1.15;
+renderer.toneMappingExposure = REAL ? 1.0 : 1.15;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;  // soft shadows (used on Level 7)
 renderer.xr.enabled = true;                              // WebXR (VR headsets)
 // VR performance is fill-rate bound, NOT geometry (draw calls are only ~40-70). setPixelRatio does
@@ -495,9 +518,9 @@ scene.add(hemi);
 const ambient = new THREE.AmbientLight('#f5e3a0', 0.35);
 scene.add(ambient);
 
-const wallMat = new THREE.MeshLambertMaterial({ map: wallTex });
-const floorMat = new THREE.MeshLambertMaterial({ map: carpetTex });
-const ceilMat = new THREE.MeshLambertMaterial({ map: ceilTex, emissiveMap: ceilEmit, emissive: new THREE.Color('#fff6d8'), emissiveIntensity: 1.4 });
+const wallMat = new LMat({ map: wallTex });
+const floorMat = new LMat({ map: carpetTex });
+const ceilMat = new LMat({ map: ceilTex, emissiveMap: ceilEmit, emissive: new THREE.Color('#fff6d8'), emissiveIntensity: 1.4 });
 
 const PLANE = 240;
 carpetTex.repeat.set(PLANE / CELL, PLANE / CELL);
@@ -534,7 +557,11 @@ renderer.shadowMap.autoUpdate = false;   // the sun shadow is re-rendered only w
 let shadowKey = '', chunkGen = 0;
 function applyRenderBudget(vr = renderer.xr.isPresenting) {
   lightBudget = !LV || LV.light <= 0 ? 0 : Math.min(vr ? VR_LIGHTS : LIGHTS.length, LV.maxLights ?? LIGHTS.length);
-  LIGHTS.forEach((l, i) => { l.visible = i < lightBudget; });
+  LIGHTS.forEach((l, i) => { l.visible = i < lightBudget;
+    const cs = REAL && !vr && i < 2 && i < lightBudget && !!LV && !LV.terrain;    // desktop realism: the two nearest lights cast real shadows
+    if (l.castShadow !== cs) { l.castShadow = cs; if (cs) { l.shadow.mapSize.set(512, 512); l.shadow.bias = -0.004; l.shadow.normalBias = 0.03; l.shadow.camera.near = 0.1; l.shadow.camera.far = 22; } }
+  });
+  lightShadowKey = '';
   sun.visible = !!LV && LV.sun > 0;                       // the sun is only used on Level 7 — otherwise it was a dead light in every shader
   const ms = vr ? 1024 : 2048;                            // VR: quarter the shadow-map pixels (soft dusk shadows across water don't need 2048)
   if (sun.shadow.mapSize.x !== ms) { sun.shadow.mapSize.set(ms, ms); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
@@ -559,7 +586,7 @@ const LEVELS = {
     fog: new THREE.Color('#bfc8c1'), fogNear: 10, fogFar: 64,          // light, dreamlike haze
     hemiSky: '#fff8ec', hemiGround: '#c2d2ca', hemi: 0.75, ambCol: '#eef2ea', amb: 0.22,  // bright, sourceless daylight (dark rooms come from the baked shade field)
     lightCol: '#ffffff', light: 0, lightDist: 14, lightDecay: 2, sun: 1.15, sunCol: '#fff3dc',  // no fixtures; a shadowless directional "daylight" so faces shade apart
-    emissiveCol: '#000000', emissive: 0, water: true, flood: true, env: 0.22,
+    emissiveCol: '#000000', emissive: 0, water: true, flood: true, env: 0.22, realEnv: 0.16, realFill: 0.45,
   },
   level2: {
     name: 'LEVEL 2 — PIPE DREAMS', ceil: concCeilTex, ceilEmit: null,
@@ -581,10 +608,26 @@ LEVELS.level94 = {
   fog: new THREE.Color('#d6e8f5'), fogNear: 70, fogFar: 330, far: 1500,
   hemiSky: '#bcd8ff', hemiGround: '#5f8f3a', hemi: 1.0, ambCol: '#fff6e8', amb: 0.25,
   lightCol: '#ffffff', light: 0, lightDist: 14, lightDecay: 2, sun: 1.5, sunCol: '#fff1d6', sunPos: [60, 100, 40],
-  emissiveCol: '#000000', emissive: 0, water: false, terrain: true, env: 0.2,
+  emissiveCol: '#000000', emissive: 0, water: false, terrain: true, env: 0.55,
 };
 const LEVEL_ORDER = ['level0', 'pool', 'level2', 'level4', 'level7', 'level94'];
 let LV, currentLevel;
+// photographic surfaces for the shared floor / wall / ceiling materials of each level
+function realSurfaces(name) {
+  for (const m of [floorMat, wallMat, ceilMat]) { m.normalMap = null; m.roughnessMap = null; m.color.set('#ffffff'); m.roughness = 1; m.metalness = 0; m.needsUpdate = true; }
+  if (name === 'level0') {                                                    // damp mono-yellow carpet, papered walls, drop-ceiling tiles
+    photo(floorMat, 'Carpet016', 160, 160, { color: '#e8d394' });
+    photo(wallMat, 'Wallpaper001A', 2, 2, { keepMap: true, ns: 0.6 });
+    photo(ceilMat, 'OfficeCeiling001', 192, 192, { color: '#e2dbb4' });
+  } else if (name === 'level2') {                                             // bare, stained concrete
+    photo(floorMat, 'Concrete046', 110, 110, { color: '#77705f' });
+    photo(wallMat, 'Concrete046', 1, 1, { color: '#b3ab98' });
+    photo(ceilMat, 'Concrete031', 96, 96, { color: '#7b7466' });
+  } else if (name === 'level4') {                                             // worn blue-grey office carpet, plaster walls, ceiling tiles
+    photo(floorMat, 'Carpet012', 160, 160, { color: '#c9d0da' });
+    photo(ceilMat, 'OfficeCeiling001', 192, 192, { keepMap: true, ns: 0.7 });
+  }
+}
 function setLevel(name) {
   const L = LEVELS[name]; if (!L || name === currentLevel) return; LV = L; currentLevel = name;
   // Level 0 draws walls/floor/ceiling with the shared mats + global planes; Poolrooms builds its
@@ -593,11 +636,13 @@ function setLevel(name) {
   if (name === 'level0') { wallMat.map = wallTex; wallMat.needsUpdate = true; floorMat.map = carpetTex; floorMat.normalMap = null; floorMat.roughness = 1; floorMat.needsUpdate = true; carpetTex.repeat.set(PLANE / CELL, PLANE / CELL); }
   if (name === 'level2') { wallMat.map = concWallTex; wallMat.needsUpdate = true; floorMat.map = concFloorTex; floorMat.normalMap = null; floorMat.roughness = 0.92; floorMat.needsUpdate = true; concFloorTex.repeat.set(PLANE / CELL, PLANE / CELL); }
   ceilMat.map = L.ceil; ceilMat.emissiveMap = L.ceilEmit; ceilMat.emissive.set(L.emissiveCol); ceilMat.needsUpdate = true;
+  if (REAL) realSurfaces(name);
   L.ceil.repeat.set(PLANE / CELL, PLANE / CELL); if (L.ceilEmit) L.ceilEmit.repeat.copy(L.ceil.repeat);
   hemi.color.set(L.hemiSky); hemi.groundColor.set(L.hemiGround); ambient.color.set(L.ambCol);
   for (const l of LIGHTS) { l.color.set(L.lightCol); l.distance = L.lightDist; l.decay = L.lightDecay; }
   sun.intensity = L.sun; if (L.sunCol) { sun.color.set(L.sunCol); sun.position.set(...(L.sunPos || [-7, 12, 4])); sun.target.position.set(0, 0, 0); sun.target.updateMatrixWorld(); }
-  scene.environmentIntensity = L.env != null ? L.env : 0.5;   // how strongly the env reflections/ambient show (kept low on the dark level)
+  scene.environment = REAL ? (L.terrain ? outdoorEnv() : envIndoor) : null;   // image-based lighting (realistic graphics)
+  scene.environmentIntensity = REAL && L.realEnv != null ? L.realEnv : L.env != null ? L.env : 0.5;   // how strongly the env reflections/ambient show (kept low on the dark level)
   scene.fog.near = L.fogNear; scene.fog.far = L.fogFar; scene.background = L.fog;
   floor.visible = !L.water && !L.ocean && !L.terrain;         // Poolrooms supplies its own per-cell floor; the ocean has no floor you can reach
   ceil.visible = !L.ocean && !L.flood && !L.terrain;          // Level 7 / Poolrooms build their own ceilings; Level 94 is outdoors
@@ -1085,7 +1130,7 @@ function addTube(P, N, U, ax, c, s0, s1, inset = 0) {
 const ROT = { COL: 0.85, RO: 2.05, HOLE: 2.3, PER: 16, RISE: 0.2, NS: 30, TH: 0.22, CURB: 0.45 };
 ROT.DPHI = Math.PI * 2 / ROT.PER; ROT.PHI0 = 0; ROT.HTOP = ROT.NS * ROT.RISE;              // 30 x 0.2 = 6 m = one storey
 ROT.LANDW = 0.3; ROT.PHI_LAND = ROT.PHI0 + (ROT.NS - 1) * ROT.DPHI + ROT.LANDW - 0.05;                      // the top landing (just past the last step) where you step off upstairs
-const stairMat = new THREE.MeshLambertMaterial({ color: '#efede4' });                    // smooth, untiled white slabs
+const stairMat = new LMat({ color: '#efede4' });                    // smooth, untiled white slabs
 const rotundaAt = (x, z) => { const i = Math.floor(x / CELL), j = Math.floor(z / CELL), rI = rID(i), rJ = rID(j);
   return isRotunda(rI, rJ) ? { cx: (rI * ROOM + 1) * CELL + CELL / 2, cz: (rJ * ROOM + 1) * CELL + CELL / 2 } : null; };
 const isRotundaCell = (i, j) => loc(i) === 1 && loc(j) === 1 && isRotunda(rID(i), rID(j));
@@ -1387,12 +1432,12 @@ function collide(pos, r) {
 // ---------- character ----------
 function makeCharacter() {
   const g = new THREE.Group();
-  const M = c => new THREE.MeshLambertMaterial({ color: c });
+  const M = c => new LMat({ color: c });
   const hoodie = M('#3b4049'), jeans = M('#2c3a57'), shoe = M('#1b1b1d'), skin = M('#d9a27e'), hair = M('#2a1d14');
   const box = (w, h, d, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
   const torso = box(0.46, 0.62, 0.26, hoodie); torso.position.y = 1.16; g.add(torso);
   const hood = box(0.36, 0.1, 0.22, hoodie); hood.position.set(0, 1.5, -0.06); g.add(hood);
-  const faceMat = new THREE.MeshLambertMaterial({ color: '#d9a27e' });
+  const faceMat = new LMat({ color: '#d9a27e' });
   const headMats = [skin, skin, hair, skin, faceMat, hair]; // +x -x +y -y +z(front) -z(back)
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.36, 0.32), headMats);
   head.position.y = 1.66; g.add(head);
@@ -1722,7 +1767,7 @@ const grassTex = canvasTex(512, 512, (g, w, h) => {
     g.lineWidth = 1 + Math.random(); g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
   }
 });
-const grassMat = new THREE.MeshLambertMaterial({ map: grassTex, vertexColors: true });
+const grassMat = new LMat({ map: grassTex, vertexColors: true });
 // painted clapboard siding, shingles, foliage and asphalt (tinted per object by vertex colour)
 const sidingTex = canvasTex(256, 256, (g, w, h) => {
   g.fillStyle = '#f2efe8'; g.fillRect(0, 0, w, h);
@@ -1744,17 +1789,17 @@ const asphaltTex = canvasTex(256, 256, (g, w, h) => {
   const ed = g.createLinearGradient(0, 0, w, 0); ed.addColorStop(0, 'rgba(30,30,30,0.45)'); ed.addColorStop(0.08, 'rgba(30,30,30,0)'); ed.addColorStop(0.92, 'rgba(30,30,30,0)'); ed.addColorStop(1, 'rgba(30,30,30,0.45)'); g.fillStyle = ed; g.fillRect(0, 0, w, h);
   g.strokeStyle = 'rgba(20,20,20,0.4)'; g.lineWidth = 1; for (let i = 0; i < 6; i++) { g.beginPath(); let x = Math.random() * w, y = Math.random() * h; g.moveTo(x, y); for (let k = 0; k < 5; k++) { x += (Math.random() - 0.5) * 40; y += Math.random() * 40; g.lineTo(x, y); } g.stroke(); }   // cracks
 });
-const sidingMat = new THREE.MeshLambertMaterial({ map: sidingTex, vertexColors: true });
-const roofMat94 = new THREE.MeshLambertMaterial({ map: shingleTex, vertexColors: true });
-const leafMat = new THREE.MeshLambertMaterial({ map: leafTex, vertexColors: true });
-const roadMat94 = new THREE.MeshLambertMaterial({ map: asphaltTex });
-const toonMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+const sidingMat = new LMat({ map: sidingTex, vertexColors: true });
+const roofMat94 = new LMat({ map: shingleTex, vertexColors: true });
+const leafMat = new LMat({ map: leafTex, vertexColors: true });
+const roadMat94 = new LMat({ map: asphaltTex });
+const toonMat = new LMat({ vertexColors: true });
 const winMat94 = new THREE.MeshBasicMaterial({ color: '#16181d', fog: true });          // windows: black by day, warm light at night
 const lampMat94 = new THREE.MeshBasicMaterial({ color: '#e8e2cc', fog: true });
 const almondMat = new THREE.MeshPhongMaterial({ color: '#efe2c4', specular: '#ffffff', shininess: 80, transparent: true, opacity: 0.85 });
-const furnWallMat = new THREE.MeshLambertMaterial({ map: wallTex.clone() }); furnWallMat.map.needsUpdate = true;
+const furnWallMat = new LMat({ map: wallTex.clone() }); furnWallMat.map.needsUpdate = true;
 const vanTex = canvasTex(256, 64, (g, w, h) => { g.fillStyle = '#f3efe4'; g.fillRect(0, 0, w, h); g.fillStyle = '#2f5f9e'; g.font = 'bold 30px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('ALMOND MILK', w / 2, h / 2 + 2); g.strokeStyle = '#2f5f9e'; g.lineWidth = 3; g.strokeRect(4, 4, w - 8, h - 8); }, false);
-const vanMat = new THREE.MeshLambertMaterial({ map: vanTex });
+const vanMat = new LMat({ map: vanTex });
 // vertex-coloured batch: everything in a chunk goes into one toon mesh (+ one window mesh) -> few draw calls
 const _bm = new THREE.Matrix4(), _bq = new THREE.Quaternion(), _be = new THREE.Euler(), _bv = new THREE.Vector3(), _bs = new THREE.Vector3(), _bc = new THREE.Color();
 function batch94() {
@@ -2015,7 +2060,7 @@ const sky94 = new THREE.Group(); sky94.visible = false; scene.add(sky94);
   const castle = new THREE.Group(); castle.position.set(-150, 45, -740); castle.scale.setScalar(2.6); sky94.add(castle);
   const glass = new THREE.MeshPhongMaterial({ color: '#7f9fba', specular: '#ffffff', shininess: 60, transparent: true, opacity: 0.62, fog: false, depthWrite: false, flatShading: true, emissive: '#3c5a73' });   // the Transparent Mountain: faceted glass, darker than the sky
   const mtn = new THREE.Mesh(new THREE.ConeGeometry(170, 230, 9, 1, true), glass); mtn.position.y = -20; castle.add(mtn);
-  const white = new THREE.MeshLambertMaterial({ color: '#f4f1ea', fog: false }), red = new THREE.MeshLambertMaterial({ color: '#b5463a', fog: false });
+  const white = new LMat({ color: '#f4f1ea', fog: false }), red = new LMat({ color: '#b5463a', fog: false });
   { const keep = new THREE.Mesh(new THREE.BoxGeometry(30, 26, 24), white); keep.position.set(0, 95 + 13, 0); castle.add(keep); }
   for (const [x, z, r, h] of [[0, 0, 9, 52], [-15, 10, 6, 40], [15, 9, 6.5, 44], [5, -12, 5, 58], [-12, -9, 6, 34], [15, -10, 5, 36]]) {
     const t = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 12), white); t.position.set(x, 95 + h / 2, z); castle.add(t);
@@ -2069,14 +2114,14 @@ function dayF94() { const t = DAY94.t % DAY94.len, a = DAY94.day, b = a + DAY94.
 function toggleNight94() { const n = dayF94() > 0.5; DAY94.t = n ? DAY94.day + DAY94.dusk + 1 : 5; toast(n ? 'NIGHT — the music stops…' : 'DAY'); }
 // ---- the Animations: choppy stop-motion figures that only come out at night ----
 function makeAnimation94(kind) {
-  const g = new THREE.Group(), part = (geo, col, x, y, z, sx, sy, sz, parent = g, rx = 0, rz = 0) => { const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: col })); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.rotation.set(rx, 0, rz); parent.add(m); return m; };
+  const g = new THREE.Group(), part = (geo, col, x, y, z, sx, sy, sz, parent = g, rx = 0, rz = 0) => { const m = new THREE.Mesh(geo, new LMat({ color: col })); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.rotation.set(rx, 0, rz); parent.add(m); return m; };
   const limb = (x, y) => { const p = new THREE.Group(); p.position.set(x, y, 0); g.add(p); return p; };
   const L = { la: limb(-0.42, 1.55), ra: limb(0.42, 1.55), ll: limb(-0.17, 0.85), rl: limb(0.17, 0.85) };
   if (kind === 0) {   // rubber-hose cartoon puppet: black body, pale face, pie-cut eyes, a wide grin, white gloves
     const blk = '#141414', face = '#f0e2c6';
     part(G94.sph, blk, 0, 1.25, 0, 0.42, 0.52, 0.36); part(G94.sph, blk, 0, 2.05, 0, 0.42, 0.4, 0.4); part(G94.sph, face, 0, 1.98, 0.2, 0.34, 0.3, 0.22);
     for (const s of [-1, 1]) { part(G94.sph, blk, s * 0.1, 2.08, 0.4, 0.07, 0.13, 0.03); part(G94.sph, '#ffffff', s * 0.1 + 0.02, 2.13, 0.42, 0.02, 0.04, 0.01); }
-    const grin = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.025, 6, 16, Math.PI), new THREE.MeshLambertMaterial({ color: blk })); grin.position.set(0, 1.93, 0.38); grin.rotation.z = Math.PI; g.add(grin);
+    const grin = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.025, 6, 16, Math.PI), new LMat({ color: blk })); grin.position.set(0, 1.93, 0.38); grin.rotation.z = Math.PI; g.add(grin);
     for (const k of ['la', 'ra']) { part(G94.cyl, blk, 0, -0.35, 0, 0.05, 0.7, 0.05, L[k]); part(G94.sph, '#ffffff', 0, -0.75, 0, 0.13, 0.13, 0.13, L[k]); }
     for (const k of ['ll', 'rl']) { part(G94.cyl, blk, 0, -0.4, 0, 0.055, 0.8, 0.055, L[k]); part(G94.sph, '#6b3d22', 0, -0.83, 0.08, 0.13, 0.08, 0.22, L[k]); }
   } else {            // wooden marionette on strings that rise up into the dark
@@ -2147,7 +2192,7 @@ function frame94(dt, time, xr, wx, wz) {
   DAY94.t += dt;
   const d = dayF94(), night = d < 0.5, gl = blackout ? 0.3 : 1;
   // lighting + sky by time of day
-  sun.intensity = LV.sun * d; hemi.intensity = LV.hemi * (0.14 + 0.86 * d) * gl; ambient.intensity = LV.amb * (0.4 + 0.6 * d) * gl;
+  sun.intensity = LV.sun * d; hemi.intensity = LV.hemi * (0.14 + 0.86 * d) * gl * (REAL ? 0.6 : 1); ambient.intensity = LV.amb * (0.4 + 0.6 * d) * gl;
   hemi.color.set('#bcd8ff').lerp(_c94.set('#3c4a7a'), 1 - d); hemi.groundColor.set('#5f8f3a').lerp(_c94.set('#1b2433'), 1 - d);
   scene.fog.color.set('#d6e8f5').lerp(_c94.set('#0c1426'), 1 - d); scene.background = scene.fog.color;
   sky94.userData.domeMat.color.setRGB(1, 1, 1).lerp(_c94.setRGB(0.07, 0.09, 0.2), 1 - d);
@@ -2220,7 +2265,7 @@ const officeWallTex = canvasTex(512, 512, (g, w, h) => {
   const bb = h * 0.05; g.fillStyle = '#9a6b42'; g.fillRect(0, h - bb, w, bb); g.fillStyle = 'rgba(255,230,190,0.25)'; g.fillRect(0, h - bb, w, 2);   // wooden boarding at the base
   for (let i = 0; i < 6; i++) { const x = Math.random() * w, y = h * (0.6 + Math.random() * 0.3), r = 20 + Math.random() * 40, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, 'rgba(110,105,95,0.06)'); rg.addColorStop(1, 'rgba(110,105,95,0)'); g.fillStyle = rg; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
 });
-const officeWallMat = new THREE.MeshLambertMaterial({ map: officeWallTex });
+const officeWallMat = new LMat({ map: officeWallTex });
 const officeCarpetTex = canvasTex(512, 512, (g, w, h) => {
   g.fillStyle = '#5d6570'; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 70000; i++) { const s = Math.random(); g.fillStyle = s < 0.5 ? `rgba(40,46,56,${Math.random() * 0.3})` : `rgba(150,160,175,${Math.random() * 0.18})`; g.fillRect(Math.random() * w, Math.random() * h, 1.5, 1.5); }
@@ -2345,6 +2390,51 @@ function updateHvac4(on) {
   hvac4.gain.setTargetAtTime(on ? 0.35 : 0, amb.ctx.currentTime, 0.5);
 }
 
+// ---------- photographic materials for everything else ----------
+if (REAL) {
+  for (const m of [poolTileMat, poolDeckMat, poolDeepMat, poolBasinMat, poolCeilMat]) photo(m, 'Tiles107', 4, 4, { rough: 0.85 });   // real glazed tile, grout in the normal map
+  photo(poolColMat, 'Tiles107', 5.6, 10, { rough: 0.85 });
+  photo(pipeMat, 'Metal021', 1, 4, { color: '#c9b9a0', metal: 0.55 });
+  photo(seaCeilMat, 'Concrete031', 0.4, 0.4, { color: '#9a978e' });
+  photo(rockMat, 'Rock058', 1, 1, { color: '#8d8f93' });
+  photo(woodMat, 'PaintedWood005', 1, 1, { color: '#b08a6a' });
+  photo(trimMat, 'PaintedWood005', 1, 1, { color: '#d8c8b0' });
+  photo(plankMat, 'Planks037A', 1, 1, { color: '#bfb3a0' });
+  photo(roomCarpetMat, 'Carpet016', 1.3, 1.3, { color: '#a89874' });
+  photo(roomWallMat, 'Wallpaper001A', 2, 2, { keepMap: true, ns: 0.6 });
+  photo(officeWallMat, 'PaintedPlaster017', 2, 2, { keepMap: true, ns: 0.5 });
+  photo(grassMat, 'Grass005', 4, 4, { color: '#d8e8c0' });
+  photo(sidingMat, 'WoodSiding008', 1, 1); sidingMat.color.setScalar(1.75);   // the greyscale photo is darker than paint: lift it so the pastel tints read
+  photo(roofMat94, 'RoofingTiles013A', 0.3, 0.3); roofMat94.color.setScalar(2.2);
+  photo(roadMat94, 'Asphalt033', 1, 2.5, { color: '#c4c4c4' });
+  toonMat.roughness = 0.75; leafMat.roughness = 0.9;
+}
+// image-based lighting: a neutral room environment indoors, a sky environment for Level 94
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envIndoor = REAL ? pmrem.fromScene(new RoomEnvironment(), 0.04).texture : null;
+let envOutdoor = null;
+function outdoorEnv() {
+  if (envOutdoor) return envOutdoor;
+  const sc = new THREE.Scene(), g = new THREE.SphereGeometry(100, 32, 16), col = [], c = new THREE.Color();
+  for (let k = 0; k < g.attributes.position.count; k++) { const y = g.attributes.position.getY(k) / 100; c.set(y > 0 ? '#d9e9f6' : '#6f9a48').lerp(new THREE.Color(y > 0 ? '#3d82d6' : '#4a6b30'), Math.min(1, Math.abs(y) * 1.4)); col.push(c.r, c.g, c.b); }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  sc.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+  const sunD = new THREE.Mesh(new THREE.SphereGeometry(6, 16, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.95, 0.85).multiplyScalar(30) })); sunD.position.set(48, 80, 32); sc.add(sunD);
+  return (envOutdoor = pmrem.fromScene(sc, 0).texture);
+}
+// desktop post: ambient occlusion (contact shadows in corners / under things) + gentle bloom off the lights
+let composer = null, gtaoPass = null;
+if (REAL) {
+  composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(16, 16, { type: THREE.HalfFloatType, samples: 4 }));
+  composer.addPass(new RenderPass(scene, camera));
+  gtaoPass = new GTAOPass(scene, camera, innerWidth, innerHeight); gtaoPass.output = GTAOPass.OUTPUT.Default;
+  gtaoPass.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.6, thickness: 1.2, scale: 1.1, samples: 12 }); gtaoPass.blendIntensity = 0.85;
+  composer.addPass(gtaoPass);
+  composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.18, 0.4, 1.15));   // only real light sources glow
+  composer.addPass(new OutputPass());
+  addEventListener('resize', () => composer.setSize(innerWidth, innerHeight)); composer.setSize(innerWidth, innerHeight);
+}
+let lightShadowKey = '';
 // ---------- Level 7: falling through the doorway, swimming ----------
 const _cw = new THREE.Vector3(), _cd = new THREE.Vector3(), _ho = new THREE.Vector3(), _rigInv = new THREE.Quaternion();
 const _lm = new THREE.Matrix4(), _lt = new THREE.Vector3();
@@ -2528,8 +2618,13 @@ function frame(now) {
     }
   }
   for (; li < LIGHTS.length; li++) LIGHTS[li].intensity = 0;  // switch off any lights not used this frame
-  hemi.intensity = LV.hemi * globalLight + 0.02;
-  ambient.intensity = LV.amb * globalLight + 0.015;
+  if (LIGHTS[0].castShadow) {   // point-light shadow maps re-render only when those lights hop to another fixture (or the world changes)
+    const k = LIGHTS[0].position.x.toFixed(1) + LIGHTS[0].position.z.toFixed(1) + LIGHTS[1].position.x.toFixed(1) + LIGHTS[1].position.z.toFixed(1) + chunkGen;
+    if (k !== lightShadowKey) { lightShadowKey = k; renderer.shadowMap.needsUpdate = true; }
+  }
+  const fill = REAL ? (LV.realFill ?? 0.6) : 1;   // with image-based lighting on, the old flat fill light is mostly redundant
+  hemi.intensity = LV.hemi * globalLight * fill + 0.02;
+  ambient.intensity = LV.amb * globalLight * fill + 0.015;
   ceilMat.emissiveIntensity = LV.emissive * globalLight;
   scene.fog.color.copy(LV.fog).multiplyScalar(0.08 + 0.92 * globalLight);
   if (LV.ocean || LV.flood) {                      // under the surface: Level 7 murky near-black, Poolrooms clear blue-green
@@ -2641,7 +2736,7 @@ function frame(now) {
     if (_frustum.intersectsObject(water)) water.userData.reflect(renderer, scene, rc);   // skip the mirror when no water is in view (as three's culling did before)
   }
   if (!xr) renderer.setRenderTarget(null);   // in VR, three binds the headset framebuffer — don't force it back to the page canvas (that caused an all-black headset)
-  renderer.render(scene, camera);
+  if (composer && !xr) composer.render(dt); else renderer.render(scene, camera);   // desktop realism: AO + bloom; VR renders straight to the headset
 
   hudT -= dt; if (hudT <= 0) { updateHud(); hudT = 0.25; }
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) document.getElementById('toast').style.opacity = 0; }
