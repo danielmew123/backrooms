@@ -64,6 +64,7 @@
   <div><kbd>F</kbd>put your webcam face on the character</div>
   <div><kbd>E</kbd>spawn / remove the entity</div>
   <div><kbd>Q</kbd>lights fail &nbsp; <kbd>P</kbd>cycle level: Level 0 → Poolrooms → Pipe Dreams → Thalassophobia</div>
+  <div>Level 7: walk into the doorway — its gravity pulls you down into the ocean</div>
   <div><kbd>M</kbd>fluorescent hum (your speakers only)</div>
   <div><kbd>V</kbd>VHS effect on/off &nbsp; <kbd>U</kbd>hide overlay</div>
   <div><kbd>G</kbd>screen-film mode (brighter, no dark edges — for filming off your monitor)</div>
@@ -76,7 +77,6 @@
 import * as THREE from 'three';
 import { Water } from 'three/addons/objects/Water.js'; // three.js's reflective water
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'; // procedural env for realistic PBR reflections
-import { Sky } from 'three/addons/objects/Sky.js'; // atmospheric sky for the Level 7 ocean
 import { VRButton } from 'three/addons/webxr/VRButton.js'; // WebXR "Enter VR" button for Quest etc.
 
 const params = new URLSearchParams(location.search);
@@ -261,27 +261,101 @@ const bulbMat = new THREE.MeshBasicMaterial({ color: '#ffdf9c', fog: true }); //
 const bulbGeo = new THREE.BoxGeometry(0.9, 0.07, 0.32);
 const stripMat = new THREE.MeshBasicMaterial({ color: '#fff3d4', fog: true }); // self-lit fluorescent tube for Level 0's (now sparse) ceiling fixtures
 const stripGeo = new THREE.BoxGeometry(2.4, 0.06, 0.46);
-// ---------- Level 7 (Thalassophobia) — the endless ocean ----------
-const stoneTex = canvasTex(512, 512, (g, w, h) => {
-  g.fillStyle = '#39423f'; g.fillRect(0, 0, w, h);                 // dark wet stone
-  speckle(g, w, h, 20000, 0.14, false); speckle(g, w, h, 6000, 0.05, true);
-  g.strokeStyle = 'rgba(14,18,18,0.5)'; g.lineWidth = 2;
-  const N = 6, s = w / N; for (let i = 0; i <= N; i++) { g.beginPath(); g.moveTo(i * s, 0); g.lineTo(i * s, h); g.stroke(); g.beginPath(); g.moveTo(0, i * s); g.lineTo(w, i * s); g.stroke(); }
-  for (let i = 0; i < 10; i++) { const x = Math.random() * w, y = Math.random() * h, r = 20 + Math.random() * 60, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, 'rgba(10,14,14,0.4)'); rg.addColorStop(1, 'rgba(10,14,14,0)'); g.fillStyle = rg; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
+// ---------- Level 7 (Thalassophobia) — built from the Backrooms wiki (wikidot "Level 7") ----------
+// "An impossibly large ocean that seems to stretch infinitely in all directions": a high concrete ceiling
+// over the water, no fixed light sources (only a dim natural light), rare islands of an unknown rock,
+// Fort Surrender (broken furniture held together with tar) on the closest island, and a furnished
+// entrance room built SIDEWAYS into the ceiling — its doorway is a hole in the ceiling ~4.5 m above the
+// water, and gravity in front of the open doorway is shifted toward the ocean, so you fall through.
+const SEA_Y = 0, SEA_CEIL = 4.5;
+// water-damaged wallpaper for the entrance room: faded damask, damp wicking up from the soaked carpet
+const roomWallTex = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#a99c7f'; g.fillRect(0, 0, w, h);
+  g.strokeStyle = 'rgba(92,80,58,.07)'; g.lineWidth = 2;
+  for (let y = 0; y < h; y += 64) for (let x = 0; x < w; x += 64) {
+    const o = (y / 64) % 2 ? 32 : 0;
+    g.beginPath(); g.ellipse(x + o, y + 32, 9, 15, 0, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.moveTo(x + o, y + 10); g.lineTo(x + o, y + 54); g.stroke();
+  }
+  for (let x = 0; x < w; x += 128) { g.fillStyle = 'rgba(70,60,40,.12)'; g.fillRect(x, 0, 2, h); }   // paper seams
+  speckle(g, w, h, 9000, .07, false); speckle(g, w, h, 3000, .05, true);
+  const wick = g.createLinearGradient(0, h, 0, h * 0.6);                                            // v=0 (floor) is the canvas bottom
+  wick.addColorStop(0, 'rgba(46,38,22,.66)'); wick.addColorStop(0.55, 'rgba(60,50,30,.30)'); wick.addColorStop(1, 'rgba(60,50,30,0)');
+  g.fillStyle = wick; g.fillRect(0, 0, w, h);
+  g.strokeStyle = 'rgba(50,40,22,.28)'; g.lineWidth = 2; g.beginPath();                              // tide line
+  for (let x = 0; x <= w; x += 8) g.lineTo(x, h * 0.64 + Math.sin(x * 0.05) * 6 + Math.sin(x * 0.13) * 3); g.stroke();
+  for (let c = 0; c < 5; c++) {                                                                       // mould: a few irregular colonies of specks
+    const cx = Math.random() * w, cy = h * (0.62 + Math.random() * 0.36), cr = 30 + Math.random() * 70;
+    for (let i = 0; i < 220; i++) { const a = Math.random() * 6.28, d = Math.pow(Math.random(), 1.8) * cr, r = 0.8 + Math.random() * 3.2; g.fillStyle = `rgba(26,32,20,${0.08 + Math.random() * 0.22})`; g.beginPath(); g.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.7, r, 0, 7); g.fill(); }
+  }
+  for (let i = 0; i < 4; i++) { const x = Math.random() * w, y0 = Math.random() * h * 0.3, gr = g.createLinearGradient(0, y0, 0, y0 + 260); gr.addColorStop(0, 'rgba(90,74,44,.16)'); gr.addColorStop(1, 'rgba(90,74,44,0)'); g.fillStyle = gr; g.fillRect(x, y0, 10 + Math.random() * 22, 260); } // soft leak stains
 });
-// weathered, water-stained siding for the half-sunk flooded houses that dot the Level 7 ocean
-const houseTex = canvasTex(256, 256, (g, w, h) => {
-  g.fillStyle = '#6f6a5c'; g.fillRect(0, 0, w, h);                 // grey-brown weathered wall
-  for (let y = 0; y < h; y += 14) { g.fillStyle = 'rgba(40,38,32,0.28)'; g.fillRect(0, y, w, 2); }  // horizontal clapboard lines
-  speckle(g, w, h, 6000, 0.14, false); speckle(g, w, h, 2000, 0.06, true);
-  for (let i = 0; i < 8; i++) { const x = Math.random() * w, y = h * (0.4 + Math.random() * 0.6), r = 14 + Math.random() * 40, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, 'rgba(26,30,26,0.4)'); rg.addColorStop(1, 'rgba(26,30,26,0)'); g.fillStyle = rg; g.fillRect(x - r, y - r, 2 * r, 2 * r); } // waterline grime
+// the ocean's ceiling: board-formed concrete, one pour panel per 5 m, form-tie holes, damp + efflorescence
+const seaCeilTex = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#6a6964'; g.fillRect(0, 0, w, h);
+  for (let y = 0; y < h; y += 32) { g.fillStyle = `rgba(30,30,28,${0.04 + Math.random() * 0.06})`; g.fillRect(0, y, w, 1 + Math.random() * 2); } // formwork board marks
+  speckle(g, w, h, 26000, .12, false); speckle(g, w, h, 9000, .06, true);
+  g.fillStyle = 'rgba(28,28,26,.5)'; g.fillRect(0, 0, w, 3); g.fillRect(0, 0, 3, h);                 // pour joints
+  for (const fx of [.25, .75]) for (const fy of [.25, .75]) { g.fillStyle = 'rgba(20,20,19,.6)'; g.beginPath(); g.arc(fx * w, fy * h, 5, 0, 7); g.fill(); } // form-tie holes
+  for (let i = 0; i < 16; i++) { const x = Math.random() * w, y = Math.random() * h, r = 25 + Math.random() * 80, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, 'rgba(22,24,24,.2)'); rg.addColorStop(1, 'rgba(22,24,24,0)'); g.fillStyle = rg; g.fillRect(x - r, y - r, 2 * r, 2 * r); } // damp
+  for (let i = 0; i < 7; i++) { const x = Math.random() * w, y = Math.random() * h, r = 10 + Math.random() * 40, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, 'rgba(205,205,195,.14)'); rg.addColorStop(1, 'rgba(205,205,195,0)'); g.fillStyle = rg; g.fillRect(x - r, y - r, 2 * r, 2 * r); } // efflorescence
 });
-houseTex.wrapS = houseTex.wrapT = THREE.RepeatWrapping; houseTex.repeat.set(2, 2);
-const houseMat = new THREE.MeshLambertMaterial({ map: houseTex, side: THREE.DoubleSide });
-const roofMat = new THREE.MeshLambertMaterial({ color: '#4a4640' });   // dark weathered roof/shingle
-const winMat = new THREE.MeshLambertMaterial({ color: '#0a0f13', side: THREE.DoubleSide }); // dark broken glass
-const HS = 4.6;                                                    // flooded-house footprint
-const isHouse7 = (i, j) => Math.abs(i) > 1 || Math.abs(j) > 1 ? hash(i, j, 77) < 0.016 : false; // rare houses, never on spawn
+seaCeilTex.repeat.set(1 / CELL, 1 / CELL);   // UVs are in metres (ShapeGeometry) -> one panel per 5 m cell
+// the islands' "unknown rock": near-black, pitted, with faint odd blue-green veins
+const rockTex = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#3d3f41'; g.fillRect(0, 0, w, h);
+  speckle(g, w, h, 40000, .25, false); speckle(g, w, h, 9000, .08, true);
+  for (let i = 0; i < 120; i++) { g.fillStyle = `rgba(8,8,9,${0.3 + Math.random() * 0.4})`; g.beginPath(); g.arc(Math.random() * w, Math.random() * h, 1 + Math.random() * 4, 0, 7); g.fill(); } // pits
+  g.lineWidth = 1.2;
+  for (let i = 0; i < 22; i++) { g.strokeStyle = `rgba(70,112,108,${0.08 + Math.random() * 0.12})`; g.beginPath(); let x = Math.random() * w, y = Math.random() * h; g.moveTo(x, y); for (let k = 0; k < 7; k++) { x += (Math.random() - 0.5) * 70; y += (Math.random() - 0.5) * 70; g.lineTo(x, y); } g.stroke(); }
+});
+// old dark furniture wood + grey weathered planks (Fort Surrender)
+const woodDraw = (base, dark) => (g, w, h) => {
+  g.fillStyle = base; g.fillRect(0, 0, w, h);
+  for (let y = 0; y < h; y += 2) { g.fillStyle = `rgba(${dark},${Math.random() * 0.2})`; g.fillRect(0, y, w, 1 + Math.random() * 2); }
+  for (let i = 0; i < 5; i++) { g.fillStyle = `rgba(${dark},.35)`; g.beginPath(); g.ellipse(Math.random() * w, Math.random() * h, 3 + Math.random() * 6, 2, 0, 0, 7); g.fill(); }
+  speckle(g, w, h, 3000, .08, false);
+};
+const woodTex = canvasTex(256, 256, woodDraw('#5a4330', '28,18,10'));
+const plankTex = canvasTex(256, 256, woodDraw('#6b6354', '34,30,24'));
+const roomWallMat = new THREE.MeshLambertMaterial({ map: roomWallTex });
+const carpet7Tex = carpetTex.clone(); carpet7Tex.repeat.set(1, 1); carpet7Tex.needsUpdate = true;
+const roomCarpetMat = new THREE.MeshLambertMaterial({ map: carpet7Tex, color: '#8f8672' });        // soaked carpet reads darker
+const roomCeilTex = ceilTex.clone(); roomCeilTex.repeat.set(1, 1); roomCeilTex.needsUpdate = true;
+const roomCeilMat = new THREE.MeshLambertMaterial({ map: roomCeilTex, color: '#bdb7a2' });
+const woodMat = new THREE.MeshLambertMaterial({ map: woodTex });
+const trimMat = new THREE.MeshLambertMaterial({ map: woodTex, color: '#9a8a74' });
+const plankMat = new THREE.MeshLambertMaterial({ map: plankTex });
+const tarMat = new THREE.MeshPhongMaterial({ color: '#060605', specular: '#3c3c38', shininess: 70 });   // glossy black tar
+const rockMat = new THREE.MeshLambertMaterial({ map: rockTex });
+const seaCeilMat = new THREE.MeshLambertMaterial({ map: seaCeilTex });
+const lampHousingMat = new THREE.MeshLambertMaterial({ color: '#cfcabc' });
+const tubeMat = new THREE.MeshBasicMaterial({ color: '#f2f3e6', fog: true });
+const voidMat = new THREE.MeshBasicMaterial({ color: '#000000', fog: false });                        // the unlit stairwell up to Level 6
+const paperMat = new THREE.MeshLambertMaterial({ color: '#c9c2a8' });
+const mugMat = new THREE.MeshLambertMaterial({ color: '#d6d0c2' });
+const bookMat = new THREE.MeshLambertMaterial({ color: '#ffffff' });                                   // per-instance colours
+const puddleNormal = poolNormalTex.clone(); puddleNormal.repeat.set(3, 3); puddleNormal.needsUpdate = true;
+const puddleMat = new THREE.MeshPhongMaterial({ color: '#3b3d35', specular: '#8f9088', shininess: 160, transparent: true, opacity: 0.32, normalMap: puddleNormal, normalScale: new THREE.Vector2(0.22, 0.22), depthWrite: false });
+// Merge many small transformed pieces into ONE mesh per material (furniture, fort) — keeps draw calls low.
+function makeBatch() {
+  const acc = new Map(), m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), pv = new THREE.Vector3(), sv = new THREE.Vector3();
+  const raw = mat => { let a = acc.get(mat); if (!a) acc.set(mat, a = { P: [], N: [], U: [] }); return a; };
+  return {
+    raw,
+    add(mat, geo, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
+      e.set(rx, ry, rz); q.setFromEuler(e); m4.compose(pv.set(x, y, z), q, sv.set(sx, sy, sz));
+      const g = (geo.index ? geo.toNonIndexed() : geo.clone()).applyMatrix4(m4), a = raw(mat);
+      for (const v of g.attributes.position.array) a.P.push(v);
+      for (const v of g.attributes.normal.array) a.N.push(v);
+      for (const v of g.attributes.uv.array) a.U.push(v);
+      g.dispose();
+    },
+    box(mat, sx, sy, sz, x, y, z, rx, ry, rz) { const g = new THREE.BoxGeometry(sx, sy, sz); this.add(mat, g, x, y, z, rx, ry, rz); g.dispose(); },
+    aabb(mat, b) { const a = raw(mat); addBox(a.P, a.N, a.U, b); },   // axis-aligned, world-scaled UVs (like the level walls)
+    emit(group) { for (const [mat, a] of acc) group.add(geoMesh(a.P, a.N, a.U, mat)); return group; },
+  };
+}
 
 // ---------- renderer / scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -309,9 +383,16 @@ scene.fog = new THREE.Fog(FOG, 7, 46);
 const camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.05, 120);
 camera.rotation.order = 'YXZ';
 // VR rig: in XR the headset drives the camera, so we move this dolly for locomotion and let XR pose the camera.
-const dolly = new THREE.Group(); dolly.add(camera); scene.add(dolly);
+const dolly = new THREE.Group(); dolly.add(camera);
+// The player's frame of reference. Identity everywhere, except Level 7's entrance room, which is built
+// sideways into the ocean ceiling: there the rig takes the room's transform so its floor is "down".
+const rig = new THREE.Group(); rig.add(dolly); scene.add(rig);
+// head-locked black sphere for comfort fades (the gravity flip in VR)
+const fadeMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, side: THREE.BackSide, depthTest: false, depthWrite: false, fog: false });
+const fadeMesh = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 8), fadeMat); fadeMesh.renderOrder = 999; fadeMesh.frustumCulled = false; fadeMesh.visible = false; camera.add(fadeMesh);
+let fadeA = 0;
 let yPrev = false;   // edge-detect the VR Y button (cycle rooms)
-renderer.xr.addEventListener('sessionstart', () => { help.classList.add('hidden'); mode = 'fp'; applyRenderBudget(true); });
+renderer.xr.addEventListener('sessionstart', () => { help.classList.add('hidden'); mode = 'fp'; applyRenderBudget(true); initAmbience(); });
 renderer.xr.addEventListener('sessionend', () => { dolly.position.set(0, 0, 0); dolly.rotation.set(0, 0, 0); applyRenderBudget(false); });
 
 // three.js reflective Water — one plane for all the Poolrooms pools, its geometry rebuilt as you move.
@@ -330,15 +411,20 @@ poolWater.renderOrder = 2; poolWater.visible = false;
 scene.add(poolWater);
 let waterDirty = true, waterChunkSig = '';
 
-// Level 7: one big dark reflective ocean plane that follows the player to the fog horizon
-const OCEAN_Y = 0.85;
+// Level 7: one big dark reflective ocean plane that follows the player to the fog horizon. No sun — it
+// mirrors the concrete ceiling (and the lit doorway in it) instead.
 const oceanWater = new Water(new THREE.PlaneGeometry(800, 800), {
-  textureWidth: 512, textureHeight: 512, waterNormals: poolNormalTex,   // mirror reflection of the sky (512 — 1024 doubled the reflection render cost for little gain over open water)
-  sunDirection: new THREE.Vector3(0.2, 0.9, 0.35).normalize(),
-  sunColor: 0xffe6c6, waterColor: 0x0c1824, distortionScale: 3.6, fog: true, alpha: 0.9,  // deep dark navy sea with a warm sun glint
+  textureWidth: 512, textureHeight: 512, waterNormals: poolNormalTex,
+  sunDirection: new THREE.Vector3(0.1, 1, 0.25).normalize(),
+  sunColor: 0x2c3438, waterColor: 0x061016, distortionScale: 2.4, fog: true, alpha: 0.95,  // black, freezing water; only a faint grey sheen
 });
-oceanWater.rotation.x = -Math.PI / 2; oceanWater.position.y = OCEAN_Y;
-oceanWater.material.transparent = true; oceanWater.material.uniforms.size.value = 10.0;
+oceanWater.rotation.x = -Math.PI / 2; oceanWater.position.y = SEA_Y;
+oceanWater.material.transparent = true; oceanWater.material.uniforms.size.value = 6.0;
+oceanWater.material.fragmentShader = oceanWater.material.fragmentShader.replace('vec3( 0.1 ) + reflectionSample * 0.9', 'vec3( 0.012 ) + reflectionSample * 0.8');  // three's Water adds a flat grey lift meant for daylight seas
+{ // underside of the surface (THREE.Water is one-sided) — what you see looking up after you plunge in
+  const under = new THREE.Mesh(new THREE.PlaneGeometry(800, 800), new THREE.MeshBasicMaterial({ color: '#0c272d', side: THREE.BackSide, fog: true }));
+  under.position.z = -0.02; oceanWater.add(under);
+}
 oceanWater.renderOrder = 2; oceanWater.visible = false;
 scene.add(oceanWater);
 // THREE.Water renders its mirror (a whole extra scene pass) in onBeforeRender. In VR three.js draws the
@@ -391,7 +477,7 @@ sun.shadow.bias = -0.0005;
 renderer.shadowMap.autoUpdate = false;   // the sun shadow is re-rendered only when it actually changes (see frame()), not every frame
 let shadowKey = '', chunkGen = 0;
 function applyRenderBudget(vr = renderer.xr.isPresenting) {
-  lightBudget = !LV || LV.light <= 0 ? 0 : vr ? VR_LIGHTS : LIGHTS.length;
+  lightBudget = !LV || LV.light <= 0 ? 0 : Math.min(vr ? VR_LIGHTS : LIGHTS.length, LV.maxLights ?? LIGHTS.length);
   LIGHTS.forEach((l, i) => { l.visible = i < lightBudget; });
   sun.visible = !!LV && LV.sun > 0;                       // the sun is only used on Level 7 — otherwise it was a dead light in every shader
   const ms = vr ? 1024 : 2048;                            // VR: quarter the shadow-map pixels (soft dusk shadows across water don't need 2048)
@@ -399,30 +485,6 @@ function applyRenderBudget(vr = renderer.xr.isPresenting) {
   shadowKey = '';
 }
 
-// Level 7 atmospheric sky + a low sun the ocean reflects
-const sky = new Sky(); sky.scale.setScalar(12000); sky.visible = false; scene.add(sky);
-{ const u = sky.material.uniforms; u.turbidity.value = 18; u.rayleigh.value = 0.55; u.mieCoefficient.value = 0.03; u.mieDirectionalG.value = 0.8; }  // hazy, desaturated — bleak overcast rather than clear blue
-const sunPos = new THREE.Vector3();
-function setOceanSun(elevDeg, aziDeg) {
-  const phi = THREE.MathUtils.degToRad(90 - elevDeg), theta = THREE.MathUtils.degToRad(aziDeg);
-  sunPos.setFromSphericalCoords(1, phi, theta);
-  sky.material.uniforms.sunPosition.value.copy(sunPos);
-  oceanWater.material.uniforms.sunDirection.value.copy(sunPos).normalize();
-}
-setOceanSun(5, 150);  // very low sun -> bleak dusk horizon glow + a glint streak on the sea
-// The Sky shader runs heavy atmospheric-scattering math on every sky pixel (half the view on Level 7,
-// per eye, plus again inside the ocean's mirror pass). The sun never moves, so bake it ONCE into a cube
-// map and show that as the background instead — identical look, a single texture lookup per pixel.
-// (Rendered to a linear HalfFloat target; tone mapping is applied when the background is drawn, as before.)
-let skyTex = null;
-function bakeSky() {
-  if (skyTex) return skyTex;
-  const rt = new THREE.WebGLCubeRenderTarget(512, { type: THREE.HalfFloatType, generateMipmaps: false });
-  const s = new THREE.Scene(); s.add(sky); sky.visible = true;   // moves the Sky out of the main scene for good
-  new THREE.CubeCamera(1, 20000, rt).update(renderer, s);
-  sky.visible = false;
-  return (skyTex = rt.texture);
-}
 
 // ---------- levels ----------
 // Wider light range + stronger ambient fill than before, so the floor no longer shows a dark
@@ -452,9 +514,9 @@ const LEVELS = {
   },
   level7: {
     name: 'LEVEL 7 — THALASSOPHOBIA', ceil: ceilTex, ceilEmit: null,
-    fog: new THREE.Color('#8b98a3'), fogNear: 14, fogFar: 100,         // hazy horizon that blends the sea into the atmospheric sky
-    hemiSky: '#aebcc6', hemiGround: '#232f36', hemi: 1.1, ambCol: '#60707b', amb: 0.38, // soft sky fill
-    lightCol: '#ffe2bf', light: 0, lightDist: 16, lightDecay: 2, sun: 2.4,  // low dusk sun casting across the water (shadows on)
+    fog: new THREE.Color('#283135'), fogNear: 3, fogFar: 62,           // cold grey haze: ceiling and sea meet in it, so the ocean never ends
+    hemiSky: '#9aa6aa', hemiGround: '#7d898e', hemi: 1.0, ambCol: '#6a767d', amb: 0.55, // "no fixed light sources, but a dim natural light"
+    lightCol: '#f1f0e2', light: 3.6, lightDist: 10, lightDecay: 2, sun: 0, maxLights: 1, roomLamp: true,  // the entrance room's single fluorescent lamp
     emissiveCol: '#000000', emissive: 0, water: false, ocean: true, env: 0.28,
   },
 };
@@ -466,7 +528,6 @@ function setLevel(name) {
   // own tiled geometry per chunk, so here we only need its ceiling + lighting + fog.
   if (name === 'level0') { wallMat.map = wallTex; wallMat.needsUpdate = true; floorMat.map = carpetTex; floorMat.normalMap = null; floorMat.roughness = 1; floorMat.needsUpdate = true; carpetTex.repeat.set(PLANE / CELL, PLANE / CELL); }
   if (name === 'level2') { wallMat.map = concWallTex; wallMat.needsUpdate = true; floorMat.map = concFloorTex; floorMat.normalMap = null; floorMat.roughness = 0.92; floorMat.needsUpdate = true; concFloorTex.repeat.set(PLANE / CELL, PLANE / CELL); }
-  if (name === 'level7') { floorMat.map = stoneTex; floorMat.normalMap = null; floorMat.roughness = 0.7; floorMat.needsUpdate = true; stoneTex.wrapS = stoneTex.wrapT = THREE.RepeatWrapping; stoneTex.repeat.set(PLANE / CELL, PLANE / CELL); }
   ceilMat.map = L.ceil; ceilMat.emissiveMap = L.ceilEmit; ceilMat.emissive.set(L.emissiveCol); ceilMat.needsUpdate = true;
   L.ceil.repeat.set(PLANE / CELL, PLANE / CELL); if (L.ceilEmit) L.ceilEmit.repeat.copy(L.ceil.repeat);
   hemi.color.set(L.hemiSky); hemi.groundColor.set(L.hemiGround); ambient.color.set(L.ambCol);
@@ -474,17 +535,21 @@ function setLevel(name) {
   sun.intensity = L.sun;
   scene.environmentIntensity = L.env != null ? L.env : 0.5;   // how strongly the env reflections/ambient show (kept low on the dark level)
   scene.fog.near = L.fogNear; scene.fog.far = L.fogFar; scene.background = L.fog;
-  floor.visible = !L.water;                                   // Poolrooms supplies its own per-cell floor
-  ceil.visible = !L.ocean;                                    // the ocean level is open to the (foggy) sky — no ceiling
-  oceanWater.visible = !!L.ocean; sun.castShadow = !!L.ocean;  // only the ocean level casts sun shadows
-  if (L.ocean) bakeSky();                                     // baked sky cube map is used as the background (see frame())
-  if (L.ocean) { sun.position.copy(sunPos).multiplyScalar(220); sun.color.set(L.lightCol); }
+  floor.visible = !L.water && !L.ocean;                       // Poolrooms supplies its own per-cell floor; the ocean has no floor you can reach
+  ceil.visible = !L.ocean;                                    // Level 7 uses its own concrete ceiling (with the doorway hole)
+  oceanWater.visible = !!L.ocean; sun.castShadow = false;
+  ceil7.visible = !!L.ocean; ceil7Key = '';
+  if (L.ocean) { buildRoom7(); buildDebris7(); }
+  if (room7) room7.visible = !!L.ocean;
+  for (const d of debris7) d.visible = !!L.ocean;
   if (typeof poolWater !== 'undefined') { poolWater.visible = false; waterChunkSig = ''; } // force a water rebuild for the new level
   if (typeof chunks !== 'undefined') {                        // rebuild the world for the new level
     for (const [, g] of chunks) { scene.remove(g); g.traverse(o => o.geometry && o.geometry.dispose()); }
     chunks.clear(); cellCache.clear();
   }
   if (typeof player !== 'undefined') { player.pos.set(CELL / 2, 0, CELL / 2); player.vel.set(0, 0, 0); } // drop at the room's always-clear spawn so you never land inside a wall after switching rooms
+  if (L.ocean && typeof player !== 'undefined') enterRoom7();   // Level 7 starts at the bottom of the stairs from Level 6
+  else { l7.phase = null; rig.position.set(0, 0, 0); rig.quaternion.identity(); }
   applyRenderBudget();                                        // light count / shadow res for this level (+ VR or not)
 }
 
@@ -595,7 +660,7 @@ function cellBoxes(i, j) {
     if (isColumnCell(i, j)) { const cx = i * CELL + CELL / 2, cz = j * CELL + CELL / 2; b.push([cx - COL_R, cx + COL_R, 0, WALL_H, cz - COL_R, cz + COL_R]); }
     if (isDeep(i, j)) b.push([i * CELL, i * CELL + CELL, 0, 0.7, j * CELL, j * CELL + CELL]); // stay on the deck, walk around the pool
   } else if (currentLevel === 'level2') b = level2Boxes(i, j);
-  else if (currentLevel === 'level7') { b = []; if (isHouse7(i, j)) { const cx = i * CELL + CELL / 2, cz = j * CELL + CELL / 2, r = HS / 2 + 0.2; b.push([cx - r, cx + r, 0, WALL_H, cz - r, cz + r]); } } // open water; wade around the flooded houses
+  else if (currentLevel === 'level7') { const x0 = i * CELL, z0 = j * CELL; b = FORT_BOXES.filter(f => f[1] > x0 - 0.5 && f[0] < x0 + CELL + 0.5 && f[5] > z0 - 0.5 && f[4] < z0 + CELL + 0.5); } // open water; the fort's walls block you
   else b = level0Boxes(i, j);
   cellCache.set(key, b); return b;
 }
@@ -640,34 +705,230 @@ function geoMesh(P, N, U, mat) {
   g.computeBoundingSphere();
   return new THREE.Mesh(g, mat);
 }
-// a single tilted, half-submerged flooded house (room shell with a doorway + flat roof), built in local
-// coords so it can be tilted/rotated like it's sinking askew in the Level 7 ocean
-function makeHouse(wx, wz, i, j) {
-  const hw = HS / 2 * (0.75 + hash(i, j, 84) * 0.7), hd = HS / 2 * (0.75 + hash(i, j, 85) * 0.7), T = 0.16;
-  const yb = -2.1, yt = 1.3 + hash(i, j, 86) * 1.5, DW = 1.2, DH = 2.0;   // varied footprint + height; ~half sits under the water (0.85)
-  const P = [], N = [], U = [], rP = [], rN = [], rU = [], wP = [], wN = [], wU = [];
-  addBox(P, N, U, [-hw, hw, yb, yt, -hd, -hd + T]);              // back wall
-  addBox(P, N, U, [-hw, -hw + T, yb, yt, -hd, hd]);             // left wall
-  addBox(P, N, U, [hw - T, hw, yb, yt, -hd, hd]);               // right wall
-  addBox(P, N, U, [-hw, -DW / 2, yb, yt, hd - T, hd]);         // front wall, left of door
-  addBox(P, N, U, [DW / 2, hw, yb, yt, hd - T, hd]);           // front wall, right of door
-  addBox(P, N, U, [-DW / 2, DW / 2, yb + DH, yt, hd - T, hd]); // header over the door
-  addBox(rP, rN, rU, [-hw - 0.15, hw + 0.15, yt, yt + 0.18, -hd - 0.15, hd + 0.15]); // roof slab + overhang
-  if (hash(i, j, 87) < 0.6) addBox(rP, rN, rU, [hw * 0.35, hw * 0.35 + 0.5, yt + 0.18, yt + 1.0, -hd * 0.35, -hd * 0.35 + 0.5]); // chimney
-  const wy0 = 1.05, wy1 = Math.min(yt - 0.25, wy0 + 0.95), hww = 0.42;  // window band, above the waterline
-  if (wy1 > wy0 + 0.3) {
-    const quad = (a, b, c, d, n) => { for (const v of [a, b, c, a, c, d]) { wP.push(v[0], v[1], v[2]); wN.push(n[0], n[1], n[2]); wU.push(0, 0); } };
-    for (const s of [-1, 1]) { const cz = s * hd * 0.42, x = hw + 0.03; quad([x, wy0, cz - hww], [x, wy0, cz + hww], [x, wy1, cz + hww], [x, wy1, cz - hww], [1, 0, 0]); }
-    for (const s of [-1, 1]) { const cz = s * hd * 0.42, x = -hw - 0.03; quad([x, wy0, cz + hww], [x, wy0, cz - hww], [x, wy1, cz - hww], [x, wy1, cz + hww], [-1, 0, 0]); }
-    { const z = -hd - 0.03; quad([-hww, wy0, z], [hww, wy0, z], [hww, wy1, z], [-hww, wy1, z], [0, 0, -1]); } // back-wall window
+// ===== Level 7 world =====
+// --- the entrance room, in its own local frame (floor y=0, doorway on the -z wall, stairs up through +z) ---
+const R7 = { W: 4.2, D: 5.0, H: 2.5, T: 0.15, DOOR_W: 0.95, DOOR_H: 2.1, SX0: 0.6, SX1: 1.8 };
+// Built sideways: room-local -z (through the doorway) points straight DOWN at the sea; the doorway's outer
+// face sits in the concrete ceiling plane, ~4.5 m above the water (as the wiki describes).
+R7.quat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+R7.pos = new THREE.Vector3(0, SEA_CEIL + R7.D / 2 + R7.T + 0.01, R7.DOOR_H / 2);
+R7.hole = [-R7.DOOR_W / 2, R7.DOOR_W / 2, R7.pos.z - R7.DOOR_H, R7.pos.z];          // world x0,x1,z0,z1 of the doorway in the sea ceiling
+R7.lamp = new THREE.Vector3(0, R7.H - 0.24, 0.3);
+R7.lampWorld = R7.lamp.clone().applyQuaternion(R7.quat).add(R7.pos);
+const R7obst = [];                                                                    // room-local [x0,x1,z0,z1] furniture footprints
+const l7 = { phase: null, F: 0, vy: 0, pullV: 0, under: false };                     // phase: 'room' | 'sea'
+let room7 = null;
+function buildRoom7() {
+  if (room7) return room7;
+  const { W, D, H, T, DOOR_W, DOOR_H, SX0, SX1 } = R7, hw = W / 2, hd = D / 2, dw = DOOR_W / 2, B = makeBatch();
+  // walls (door wall split around the doorway, back wall split around the stair opening)
+  B.aabb(roomWallMat, [-hw - T, -hw, 0, H, -hd - T, hd + T]);
+  B.aabb(roomWallMat, [hw, hw + T, 0, H, -hd - T, hd + T]);
+  B.aabb(roomWallMat, [-hw, -dw, 0, H, -hd - T, -hd]);
+  B.aabb(roomWallMat, [dw, hw, 0, H, -hd - T, -hd]);
+  B.aabb(roomWallMat, [-dw, dw, DOOR_H, H, -hd - T, -hd]);
+  B.aabb(roomWallMat, [-hw, SX0, 0, H, hd, hd + T]);
+  B.aabb(roomWallMat, [SX1, hw, 0, H, hd, hd + T]);
+  B.aabb(roomWallMat, [SX0, SX1, 2.2, H, hd, hd + T]);
+  { const a = B.raw(roomCarpetMat); addQuadY(a.P, a.N, a.U, -hw, hw, -hd, hd, 0, true, 2.0); }
+  { const a = B.raw(roomCeilMat); addQuadY(a.P, a.N, a.U, -hw, hw, -hd, hd, H, false, 2.5); }
+  // baseboards
+  for (const b of [[-hw, -hw + 0.015, -hd, hd], [hw - 0.015, hw, -hd, hd], [-hw, -dw - 0.07, -hd, -hd + 0.015], [dw + 0.07, hw, -hd, -hd + 0.015], [-hw, SX0, hd - 0.015, hd], [SX1, hw, hd - 0.015, hd]])
+    B.aabb(trimMat, [b[0], b[1], 0, 0.1, b[2], b[3]]);
+  // door casing — pokes 2 cm through the ceiling slab so the hole has a frame when seen from the sea
+  B.aabb(trimMat, [-dw - 0.07, -dw + 0.005, 0, DOOR_H + 0.07, -hd - T - 0.03, -hd + 0.025]);
+  B.aabb(trimMat, [dw - 0.005, dw + 0.07, 0, DOOR_H + 0.07, -hd - T - 0.03, -hd + 0.025]);
+  B.aabb(trimMat, [-dw - 0.07, dw + 0.07, DOOR_H - 0.005, DOOR_H + 0.07, -hd - T - 0.03, -hd + 0.025]);
+  // the open door, swung into the room against the right side
+  { const hx = dw - 0.03, hz = -hd + 0.04, dx = 0.17, dz = 0.985;
+    B.box(woodMat, 0.86, 2.04, 0.045, hx + dx * 0.44, 1.02, hz + dz * 0.44, 0, -1.4, 0);
+    const kx = hx + dx * 0.78, kz = hz + dz * 0.78, kg = new THREE.SphereGeometry(0.03, 8, 6);
+    B.add(trimMat, kg, kx - 0.05, 0.98, kz + 0.01); B.add(trimMat, kg, kx + 0.05, 0.98, kz - 0.01);
+    R7obst.push([hx - 0.06, hx + 0.24, hz, hz + 0.9]); }
+  // bookcase against the left wall, "books of unknown origin"
+  const bx0 = -hw + 0.005, bx1 = -hw + 0.36, bz0 = -1.3, bz1 = 0.4, bh = 1.96, th = 0.025, shelves = [0.07, 0.45, 0.83, 1.21, 1.59];
+  B.aabb(woodMat, [bx0, bx1, 0, bh, bz0, bz0 + th]); B.aabb(woodMat, [bx0, bx1, 0, bh, bz1 - th, bz1]);
+  B.aabb(woodMat, [bx0, bx1 + 0.02, bh - th, bh, bz0 - 0.02, bz1 + 0.02]); B.aabb(woodMat, [bx0, bx0 + 0.012, 0, bh, bz0, bz1]);
+  B.aabb(woodMat, [bx1 - 0.02, bx1, 0, 0.07, bz0, bz1]);
+  for (const y of shelves) B.aabb(woodMat, [bx0, bx1, y, y + th, bz0 + th, bz1 - th]);
+  R7obst.push([bx0, bx1 + 0.03, bz0, bz1]);
+  const BOOKC = ['#5a2e22', '#2f3b2a', '#273449', '#6b5a3a', '#4a2236', '#7a6d54', '#30302c', '#5e4b2a', '#3e4a4f', '#6d3f2a', '#24262a', '#857a62'];
+  const books = [], col = new THREE.Color(); let bseed = 0;
+  const rnd = () => hash(bseed++, 17, 9071);
+  shelves.forEach((y0, si) => {
+    let z = bz0 + th + 0.01; const y = y0 + th, gap = (shelves[si + 1] ?? bh - th) - y - 0.03;
+    while (z < bz1 - th - 0.03) {
+      if (rnd() < 0.06) { z += 0.05 + rnd() * 0.18; continue; }                         // gaps where books are missing
+      const t = 0.022 + rnd() * 0.045, hgt = Math.min(gap, 0.17 + rnd() * 0.15), dpt = 0.15 + rnd() * 0.1;
+      if (z + t > bz1 - th) break;
+      const lean = rnd() < 0.07 ? (rnd() < 0.5 ? -1 : 1) * (0.12 + rnd() * 0.25) : 0;
+      books.push({ x: bx0 + 0.015 + dpt / 2 + rnd() * 0.04, y: y + hgt / 2, z: z + t / 2, sx: dpt, sy: hgt, sz: t, rx: lean, c: BOOKC[Math.floor(rnd() * BOOKC.length)], wet: si === 0 });
+      z += t + (lean ? 0.05 : 0.002);
+    }
+  });
+  // a couple of fallen, soaked books in the puddle
+  books.push({ x: -1.3, y: 0.025, z: 0.75, sx: 0.17, sy: 0.035, sz: 0.24, rx: 0, ry: 0.5, c: '#4a2236', wet: true });
+  books.push({ x: -1.55, y: 0.02, z: 1.0, sx: 0.15, sy: 0.03, sz: 0.22, rx: 0, ry: -0.3, c: '#273449', wet: true });
+  const g = new THREE.Group();
+  { const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), bookMat, books.length), m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+    books.forEach((b, i) => {
+      q.setFromEuler(e.set(b.rx, b.ry || 0, 0)); m.compose(new THREE.Vector3(b.x, b.y, b.z), q, new THREE.Vector3(b.sx, b.sy, b.sz)); im.setMatrixAt(i, m);
+      col.set(b.c).multiplyScalar(b.wet ? 0.55 : 0.85 + rnd() * 0.3); im.setColorAt(i, col);
+    });
+    im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true; g.add(im); }
+  // small coffee table (+ a mug and a damp sheet of paper)
+  { const tx = 0.25, tz = 0.35;
+    B.box(woodMat, 1.0, 0.04, 0.52, tx, 0.42, tz); B.box(woodMat, 0.9, 0.02, 0.42, tx, 0.13, tz);
+    for (const a of [-1, 1]) for (const c of [-1, 1]) B.box(woodMat, 0.05, 0.4, 0.05, tx + a * 0.45, 0.2, tz + c * 0.21);
+    const mg = new THREE.CylinderGeometry(0.04, 0.036, 0.095, 14); B.add(mugMat, mg, tx + 0.27, 0.4875, tz - 0.1);
+    B.box(paperMat, 0.21, 0.003, 0.297, tx - 0.18, 0.4415, tz + 0.04, 0, 0.35, 0);
+    R7obst.push([tx - 0.52, tx + 0.52, tz - 0.28, tz + 0.28]); }
+  // a single wooden chair, pushed back askew
+  { const cx = 1.15, cz = 1.15, a = 2.5, rot = (ox, oz) => [cx + ox * Math.cos(a) + oz * Math.sin(a), cz - ox * Math.sin(a) + oz * Math.cos(a)];
+    const part = (sx, sy, sz, ox, y, oz) => { const [x, z] = rot(ox, oz); B.box(woodMat, sx, sy, sz, x, y, z, 0, a, 0); };
+    part(0.44, 0.04, 0.42, 0, 0.45, 0);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) part(0.04, 0.45, 0.04, sx * 0.19, 0.225, sz * 0.18);
+    for (const sx of [-1, 1]) part(0.04, 0.52, 0.04, sx * 0.19, 0.71, -0.19);
+    part(0.42, 0.06, 0.02, 0, 0.66, -0.19); part(0.42, 0.06, 0.02, 0, 0.8, -0.19); part(0.46, 0.07, 0.035, 0, 0.94, -0.19);
+    R7obst.push([cx - 0.3, cx + 0.3, cz - 0.3, cz + 0.3]); }
+  // fluorescent ceiling lamp — the room's (and the level's) only fixed light
+  B.box(lampHousingMat, 1.25, 0.07, 0.24, R7.lamp.x, H - 0.035, R7.lamp.z);
+  B.box(tubeMat, 1.17, 0.03, 0.15, R7.lamp.x, H - 0.085, R7.lamp.z);
+  // the staircase back up to Level 6, climbing into pitch darkness
+  { const n = 13, rise = 0.19, run = 0.27, z0 = hd, len = n * run;
+    for (let k = 0; k < n; k++) B.aabb(roomCarpetMat, [SX0, SX1, 0, (k + 1) * rise, z0 + k * run, z0 + (k + 1) * run]);
+    B.aabb(roomWallMat, [SX0 - T, SX0, 0, 2.3 + n * rise, z0, z0 + len + 1.2]);
+    B.aabb(roomWallMat, [SX1, SX1 + T, 0, 2.3 + n * rise, z0, z0 + len + 1.2]);
+    B.box(roomWallMat, SX1 - SX0, 0.1, Math.hypot(len, n * rise) + 0.4, (SX0 + SX1) / 2, 2.25 + n * rise / 2 + 0.05, z0 + len / 2, -Math.atan2(n * rise, len), 0, 0);
+    B.aabb(roomCarpetMat, [SX0, SX1, 0, n * rise, z0 + len, z0 + len + 1.2]);
+    B.aabb(voidMat, [SX0, SX1, n * rise, n * rise + 2.4, z0 + len + 1.1, z0 + len + 1.2]); }
+  B.emit(g);
+  // shallow pool of water over the carpet ("no deeper than a puddle")
+  const pud = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.02, D - 0.02), puddleMat);
+  pud.rotation.x = -Math.PI / 2; pud.position.y = 0.022; pud.renderOrder = 1; g.add(pud);
+  g.position.copy(R7.pos); g.quaternion.copy(R7.quat);
+  scene.add(g);
+  return (room7 = g);
+}
+const debris7 = [];
+function buildDebris7() {
+  if (debris7.length) return;
+  const add = (build, x, z, ry, tilt) => { const B = makeBatch(); build(B); const g = B.emit(new THREE.Group()); g.position.set(x, SEA_Y, z); g.rotation.set(tilt, ry, tilt * 0.6); g.userData = { ph: Math.random() * 6.28, ry }; scene.add(g); debris7.push(g); };
+  add(B => { B.box(woodMat, 0.44, 0.04, 0.42, 0, 0.02, 0); B.box(woodMat, 0.44, 0.52, 0.04, 0, 0.2, -0.19, -1.2, 0, 0); for (const x of [-1, 1]) B.box(woodMat, 0.04, 0.04, 0.45, x * 0.19, -0.05, 0.1, 0.3, 0, 0); }, 1.9, -1.6, 0.7, 0.25);   // a chair floating on its back
+  add(B => B.box(bookMat, 0.17, 0.035, 0.24, 0, 0.01, 0), -1.2, 0.9, 0.4, 0.05);
+  add(B => B.box(bookMat, 0.15, 0.03, 0.22, 0, 0.01, 0), 0.6, 2.3, -0.8, -0.08);
+  add(B => { B.box(paperMat, 0.21, 0.003, 0.297, 0, 0.005, 0); B.box(paperMat, 0.21, 0.003, 0.297, 0.12, 0.004, 0.08, 0, 0.6, 0); }, -0.3, -0.7, 0.2, 0);
+  add(B => B.box(plankMat, 0.2, 0.04, 1.6, 0, 0.0, 0), -2.6, -2.2, 1.1, 0.04);
+}
+function enterRoom7() {
+  l7.phase = 'room'; l7.F = 0; l7.vy = 0; l7.pullV = 0; l7.under = false;
+  rig.position.copy(R7.pos); rig.quaternion.copy(R7.quat);
+  player.pos.set(1.2, 0, R7.D / 2 - 0.75); player.vel.set(0, 0, 0); player.yaw = 0.32; player.pitch = -0.05;  // just stepped off the stairs, facing the doorway
+  dolly.rotation.set(0, 0, 0);
+}
+function collideRoom(pos, r) {
+  const hw = R7.W / 2, hd = R7.D / 2, dw = R7.DOOR_W / 2;
+  for (const b of R7obst) {
+    const qx = Math.max(b[0], Math.min(pos.x, b[1])), qz = Math.max(b[2], Math.min(pos.z, b[3])), dx = pos.x - qx, dz = pos.z - qz, d2 = dx * dx + dz * dz;
+    if (d2 < r * r && d2 > 1e-8) { const d = Math.sqrt(d2), push = (r - d) / d; pos.x += dx * push; pos.z += dz * push; }
   }
-  const grp = new THREE.Group();
-  const wall = geoMesh(P, N, U, houseMat); wall.castShadow = wall.receiveShadow = true; wall.frustumCulled = false; grp.add(wall);
-  const roof = geoMesh(rP, rN, rU, roofMat); roof.castShadow = roof.receiveShadow = true; roof.frustumCulled = false; grp.add(roof);
-  if (wP.length) { const win = geoMesh(wP, wN, wU, winMat); win.frustumCulled = false; grp.add(win); }
-  grp.position.set(wx, 0, wz);
-  grp.rotation.set((hash(i, j, 81) - 0.5) * 0.26, hash(i, j, 82) * Math.PI * 2, (hash(i, j, 83) - 0.5) * 0.26); // tilt + random facing
-  return grp;
+  pos.x = THREE.MathUtils.clamp(pos.x, -hw + r, hw - r);
+  pos.z = Math.min(pos.z, hd - r);
+  if (pos.z < -hd + r) {                                   // only the doorway lets you past the door wall
+    if (Math.abs(pos.x) < dw - 0.08) pos.x = THREE.MathUtils.clamp(pos.x, -dw + 0.12, dw - 0.12);
+    else pos.z = -hd + r;
+  }
+}
+// --- islands of "an unknown rock" (rare), one possible per 30 m chunk; Fort Surrender on the closest one ---
+const FORT = { x: 36, z: 21 };
+const islandCache = new Map();
+function island7(cx, cz) {
+  const key = cx + ',' + cz; if (islandCache.has(key)) return islandCache.get(key);
+  const S = CELL * CHUNK; let isl = null;
+  if (Math.floor(FORT.x / S) === cx && Math.floor(FORT.z / S) === cz) isl = { x: FORT.x, z: FORT.z, r: 9, h: 1.5, a: 1.3, b: 4.1, fort: true };
+  else if ((Math.abs(cx) > 1 || Math.abs(cz) > 1) && hash(cx, cz, 701) < 0.2)
+    isl = { x: (cx + 0.5) * S + (hash(cx, cz, 702) - 0.5) * 12, z: (cz + 0.5) * S + (hash(cx, cz, 703) - 0.5) * 12, r: 4 + hash(cx, cz, 704) * 7, h: 0.4 + hash(cx, cz, 705) * 1.6, a: hash(cx, cz, 706) * 6.28, b: hash(cx, cz, 707) * 6.28 };
+  if (isl) isl.top = isl.h * 0.72;
+  islandCache.set(key, isl); return isl;
+}
+const islandR = (isl, th) => isl.r * (1 + 0.22 * Math.sin(3 * th + isl.a) + 0.12 * Math.sin(5 * th + isl.b) + 0.06 * Math.sin(9 * th + isl.a * 2));
+function islandH(isl, x, z) {
+  const dx = x - isl.x, dz = z - isl.z, u = Math.hypot(dx, dz) / islandR(isl, Math.atan2(dz, dx));
+  if (u > 1.62) return -99;
+  let y = isl.h * (1 - u * u);
+  if (y < 0) y *= 2.6;                                                                   // drops away steeply under the water
+  y += (0.16 * Math.sin(x * 1.7 + isl.a) * Math.sin(z * 1.3 + isl.b) + 0.07 * Math.sin(x * 4.3) * Math.sin(z * 3.9)) * Math.min(1, u + 0.3);
+  if (isl.fort) y = THREE.MathUtils.lerp(y, isl.top, 1 - THREE.MathUtils.smoothstep(u, 0.32, 0.55));  // levelled where the fort stands
+  return y;
+}
+function groundY7(x, z) {
+  const S = CELL * CHUNK, cx = Math.floor(x / S), cz = Math.floor(z / S); let y = -99;
+  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { const isl = island7(cx + a, cz + b); if (isl) y = Math.max(y, islandH(isl, x, z)); }
+  return y;
+}
+function makeIsland(isl) {
+  const RINGS = 14, SEG = 44, P = [], U = [], idx = [];
+  for (let k = 0; k <= RINGS; k++) for (let sg = 0; sg < SEG; sg++) {
+    const th = sg / SEG * Math.PI * 2, rr = islandR(isl, th) * 1.6 * k / RINGS, x = isl.x + Math.cos(th) * rr, z = isl.z + Math.sin(th) * rr;
+    P.push(x, islandH(isl, x, z), z); U.push(x / 3, z / 3);
+  }
+  for (let k = 0; k < RINGS; k++) for (let sg = 0; sg < SEG; sg++) {
+    const a = k * SEG + sg, b = k * SEG + (sg + 1) % SEG, c = a + SEG, d = b + SEG;
+    idx.push(a, b, c, b, d, c);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+  g.setIndex(idx); g.computeVertexNormals(); g.computeBoundingSphere();
+  return new THREE.Mesh(g, rockMat);
+}
+// Fort Surrender: "a haphazard shelter ... built from broken furniture held together with tar"
+const FORT_BOXES = [];   // world AABBs [x0,x1,y0,y1,z0,z1] for collision
+function makeFort(isl) {
+  const B = makeBatch(), fx = isl.x, fz = isl.z, y0 = isl.top, r = k => hash(k, 3, 911);
+  const P = (mat, sx, sy, sz, x, y, z, rx = 0, ry = 0, rz = 0) => B.box(mat, sx, sy, sz, fx + x, y0 + y, fz + z, rx, ry, rz);
+  for (let i = 0; i < 9; i++) P(plankMat, 3.3 - (i % 3) * 0.25, 0.04, 0.27, (i % 2) * 0.06, 0.02, -1.16 + i * 0.29, 0, (r(i) - 0.5) * 0.08, 0);   // floor
+  P(woodMat, 1.7, 1.1, 0.05, -0.8, 0.62, -1.33, 0.04, 0, 0.03);                                             // back: an upended table top...
+  P(woodMat, 0.06, 0.06, 0.55, -1.55, 1.08, -1.05); P(woodMat, 0.06, 0.06, 0.55, -0.05, 1.1, -1.05, 0.1, 0, 0);   // ...legs still sticking out
+  for (let i = 0; i < 5; i++) P(plankMat, 0.22, 1.85 + r(i + 10) * 0.35, 0.04, 0.28 + i * 0.25, 0.98, -1.31, (r(i + 20) - 0.5) * 0.05, 0, (r(i + 30) - 0.5) * 0.14);
+  P(woodMat, 0.05, 2.0, 0.84, -1.73, 1.0, -0.78, 0, 0, 0.07);                                               // left: an old panel door, leaning
+  P(woodMat, 0.05, 1.7, 1.05, -1.7, 0.86, 0.3, 0, 0.05, -0.05);                                              // ...and the back board of a bookcase
+  for (let i = 0; i < 3; i++) P(woodMat, 0.3, 0.02, 0.98, -1.55, 0.35 + i * 0.5, 0.3, 0, 0, 0.04);           // its shelf stubs
+  for (let i = 0; i < 7; i++) P(plankMat, 0.04, 0.2, 2.5 + r(i + 40) * 0.3, 1.72, 0.14 + i * 0.29, -0.05, (r(i + 50) - 0.5) * 0.1, 0, (r(i + 60) - 0.5) * 0.05); // right: crooked stacked planks
+  P(woodMat, 1.45, 1.85, 0.05, -1.0, 0.93, 1.3, 0, 0.06, 0.03);                                              // front-left: a wardrobe side
+  P(plankMat, 0.5, 1.9, 0.04, 1.45, 0.95, 1.32, 0, -0.05, -0.04);                                            // front-right board (entrance between)
+  P(plankMat, 1.6, 0.2, 0.04, 0.45, 1.95, 1.33, 0, 0, 0.09);                                                 // crooked lintel
+  for (let i = 0; i < 8; i++) P(plankMat, 0.32, 0.04, 3.0, -1.55 + i * 0.44, 2.12 + (r(i + 70) - 0.5) * 0.06, 0, -0.1, 0, (r(i + 80) - 0.5) * 0.06);  // sloped roof
+  P(woodMat, 1.2, 0.04, 0.8, 0.4, 2.24, -0.25, -0.1, 0.45, 0.03);                                            // a tabletop patching the roof
+  // broken chair dumped outside + loose planks
+  P(woodMat, 0.44, 0.04, 0.42, 2.4, 0.22, 1.6, 1.2, 0.4, 0); P(woodMat, 0.04, 0.45, 0.04, 2.55, 0.12, 1.9, 0, 0, 1.4); P(woodMat, 0.04, 0.5, 0.04, 2.2, 0.06, 1.3, 1.57, 0.3, 0);
+  P(plankMat, 0.22, 0.04, 1.9, -2.5, 0.05, 0.8, 0, 0.6, 0.05); P(plankMat, 0.22, 0.04, 1.4, -2.3, 0.09, 1.1, 0, 0.9, -0.1);
+  // tar: blobs on the joints, drips down the seams, and a crude tar eye on the front (they worship The Thing)
+  const blob = new THREE.SphereGeometry(1, 8, 6);
+  for (const [x, y, z, sc] of [[-1.7, 2.0, -1.3, .14], [1.7, 2.05, -1.3, .13], [-1.7, 1.9, 1.3, .15], [1.7, 1.95, 1.3, .12], [-1.72, 1.0, -0.33, .1], [1.72, 1.0, 1.2, .1], [0.2, 1.4, -1.3, .09], [-0.2, 2.2, 0.6, .12], [0.9, 2.18, -0.6, .1], [1.2, 0.08, -1.25, .12], [-1.65, 0.07, 1.25, .11]])
+    B.add(tarMat, blob, fx + x, y0 + y, fz + z, 0, 0, 0, sc * 1.3, sc * 0.7, sc * 1.3);
+  for (let i = 0; i < 10; i++) P(tarMat, 0.025, 0.25 + r(i + 90) * 0.5, 0.025, -1.6 + r(i + 100) * 3.2, 1.5 - r(i + 110) * 0.6, (i % 2 ? 1.34 : -1.36));
+  const eye = new THREE.TorusGeometry(0.3, 0.035, 6, 22); B.add(tarMat, eye, fx - 1.0, y0 + 1.25, fz + 1.335);
+  B.add(tarMat, blob, fx - 1.0, y0 + 1.25, fz + 1.335, 0, 0, 0, 0.1, 0.1, 0.02);
+  for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI - Math.PI; P(tarMat, 0.03, 0.18, 0.02, -1.0 + Math.cos(a) * 0.42, 1.25 - Math.sin(a) * 0.42, 1.335, 0, 0, -a + Math.PI / 2); }
+  // inside: a tar bucket and a bed of planks + rags
+  B.add(tarMat, new THREE.CylinderGeometry(0.16, 0.13, 0.3, 12), fx + 1.1, y0 + 0.19, fz - 0.9);
+  P(plankMat, 0.8, 0.12, 1.9, -1.1, 0.1, -0.2); P(paperMat, 0.7, 0.06, 1.0, -1.1, 0.18, -0.4, 0, 0.1, 0.04);
+  if (!FORT_BOXES.length) for (const b of [[-1.75, 1.75, -1.4, -1.25], [-1.82, -1.65, -1.3, 1.3], [1.65, 1.82, -1.3, 1.3], [-1.75, -0.25, 1.25, 1.4], [1.2, 1.75, 1.25, 1.4]])
+    FORT_BOXES.push([fx + b[0], fx + b[1], 0, 3, fz + b[2], fz + b[3]]);
+  return B.emit(new THREE.Group());
+}
+// the ocean's concrete ceiling: one big plane that follows you, with the doorway cut out of it when near
+const ceil7 = new THREE.Mesh(new THREE.BufferGeometry(), seaCeilMat);
+ceil7.rotation.x = Math.PI / 2; ceil7.position.y = SEA_CEIL; ceil7.visible = false; ceil7.frustumCulled = false; scene.add(ceil7);
+let ceil7Key = '';
+function updateCeil7(px, pz) {
+  const cx = Math.round(px / CELL) * CELL, cz = Math.round(pz / CELL) * CELL, key = cx + ',' + cz;
+  if (key === ceil7Key) return; ceil7Key = key;
+  const E = 120, sh = new THREE.Shape([new THREE.Vector2(-E, -E), new THREE.Vector2(E, -E), new THREE.Vector2(E, E), new THREE.Vector2(-E, E)]);
+  const [x0, x1, z0, z1] = R7.hole;
+  if (Math.max(Math.abs(x0 - cx), Math.abs(x1 - cx), Math.abs(z0 - cz), Math.abs(z1 - cz)) < E - 1)
+    sh.holes.push(new THREE.Path([new THREE.Vector2(x0 - cx, z0 - cz), new THREE.Vector2(x0 - cx, z1 - cz), new THREE.Vector2(x1 - cx, z1 - cz), new THREE.Vector2(x1 - cx, z0 - cz)]));
+  ceil7.geometry.dispose(); ceil7.geometry = new THREE.ShapeGeometry(sh); ceil7.position.set(cx, SEA_CEIL, cz);  // shape (x,y) -> world (x, z)
 }
 // caustic-light overlay geometry (positions + uv + per-vertex brightness, no normals — it's unlit additive)
 const CUV = 2.0;
@@ -753,8 +1014,8 @@ function buildChunk(cx, cz) {
       colXZ.forEach((p, idx) => { mtx.makeTranslation(p[0], (WALL_H - CB) / 2, p[1]); inst.setMatrixAt(idx, mtx); }); // span from below the deepest pit up to the ceiling, so pillars rise out of pools of any depth
       inst.instanceMatrix.needsUpdate = true; inst.frustumCulled = false; group.add(inst);
     }
-  } else if (currentLevel === 'level7') {                           // open ocean: scattered half-sunk flooded houses
-    for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) if (isHouse7(i, j)) group.add(makeHouse(i * CELL + CELL / 2, j * CELL + CELL / 2, i, j));
+  } else if (currentLevel === 'level7') {                           // open ocean: a rare island of unknown rock (Fort Surrender on the nearest)
+    const isl = island7(cx, cz); if (isl) { group.add(makeIsland(isl)); if (isl.fort) group.add(makeFort(isl)); }
   } else {
     const P = [], N = [], U = [];
     for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++)
@@ -881,7 +1142,7 @@ function makeCharacter() {
   return g;
 }
 const hero = makeCharacter();
-scene.add(hero);
+rig.add(hero);
 hero.scale.setScalar(0.9);   // a bit shorter
 
 // ---------- entity ----------
@@ -901,7 +1162,7 @@ function makeEntity() {
   return g;
 }
 const entity = makeEntity();
-scene.add(entity);
+rig.add(entity);
 
 // ---------- post (VHS) ----------
 let rt = new THREE.WebGLRenderTarget(16, 16, { type: THREE.HalfFloatType });
@@ -963,7 +1224,7 @@ addEventListener('resize', resize); resize();
 let audio = null;
 function toggleHum() {
   if (!audio) {
-    const ctx = new AudioContext(), gain = ctx.createGain(); gain.gain.value = 0;
+    const ctx = getCtx(), gain = ctx.createGain(); gain.gain.value = 0;
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
     for (const [f, a] of [[120, .5], [240, .25], [360, .12], [1200, .02]]) {
       const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f + Math.random() * .3;
@@ -976,6 +1237,56 @@ function toggleHum() {
   audio.gain.gain.setTargetAtTime(audio.on ? 0.05 : 0, audio.ctx.currentTime, 0.2);
   toast(audio.on ? 'hum on' : 'hum off');
 }
+
+// ---------- Level 7 ambience (synthesized WebAudio, no files) ----------
+// water lapping against nothing, a deep swell, drips echoing off the concrete ceiling, the entrance room's
+// fluorescent buzz, a splash when you go in, and everything muffled once you're under the surface.
+let actx = null;
+function getCtx() { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); return actx; }
+let amb = null;
+function initAmbience() {
+  if (amb) { if (actx.state === 'suspended') actx.resume(); return; }
+  try {
+    const ctx = getCtx(), out = ctx.createGain(); out.gain.value = 0;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 6000; out.connect(lp).connect(ctx.destination);
+    const nb = ctx.createBuffer(1, ctx.sampleRate * 3, ctx.sampleRate), d = nb.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const noise = () => { const n = ctx.createBufferSource(); n.buffer = nb; n.loop = true; n.start(0, Math.random() * 2.5); return n; };
+    const lapG = ctx.createGain(); lapG.gain.value = 0.2;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 430; bp.Q.value = 0.8;
+    noise().connect(bp).connect(lapG).connect(out);
+    for (const [f, a] of [[0.11, 0.11], [0.29, 0.07]]) { const o = ctx.createOscillator(); o.frequency.value = f; const g = ctx.createGain(); g.gain.value = a; o.connect(g).connect(lapG.gain); o.start(); }
+    const rl = ctx.createBiquadFilter(); rl.type = 'lowpass'; rl.frequency.value = 110; const rg = ctx.createGain(); rg.gain.value = 0.55;
+    noise().connect(rl).connect(rg).connect(out);
+    const dl = ctx.createDelay(1); dl.delayTime.value = 0.27; const fb = ctx.createGain(); fb.gain.value = 0.42; const dlp = ctx.createBiquadFilter(); dlp.type = 'lowpass'; dlp.frequency.value = 2200;
+    dl.connect(dlp).connect(fb).connect(dl); dl.connect(out);
+    const dripBus = ctx.createGain(); dripBus.connect(out); dripBus.connect(dl);
+    const buzzG = ctx.createGain(); buzzG.gain.value = 0; const bl = ctx.createBiquadFilter(); bl.type = 'lowpass'; bl.frequency.value = 700;
+    for (const [f, a] of [[120, .5], [240, .25], [360, .1]]) { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f + Math.random() * 0.3; const g = ctx.createGain(); g.gain.value = a; o.connect(g).connect(bl); o.start(); }
+    bl.connect(buzzG).connect(ctx.destination);
+    amb = { ctx, out, lp, dripBus, buzzG, nb, nextDrip: 0 };
+  } catch (e) { amb = null; }
+}
+function drip7() {
+  const ctx = amb.ctx, t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain(), f = 900 + Math.random() * 1100;
+  o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 0.45, t + 0.09);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.04 + Math.random() * 0.06, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0008, t + 0.22);
+  o.connect(g).connect(amb.dripBus); o.start(t); o.stop(t + 0.3);
+}
+function splash7() {
+  if (!amb) return;
+  const ctx = amb.ctx, t = ctx.currentTime, n = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+  n.buffer = amb.nb; f.type = 'lowpass'; f.frequency.setValueAtTime(5000, t); f.frequency.exponentialRampToValueAtTime(250, t + 1.3);
+  g.gain.setValueAtTime(0.9, t); g.gain.exponentialRampToValueAtTime(0.001, t + 1.6);
+  n.connect(f).connect(g).connect(amb.out); n.start(t); n.stop(t + 1.7);
+}
+function updateAmbience(on, room, under, light) {
+  if (!amb) return; const t = amb.ctx.currentTime;
+  amb.out.gain.setTargetAtTime(on ? (room ? 0.3 : 0.75) : 0, t, 0.4);
+  amb.lp.frequency.setTargetAtTime(under ? 380 : room ? 1500 : 6000, t, 0.08);
+  amb.buzzG.gain.setTargetAtTime(on && room ? 0.012 * light : 0, t, 0.15);
+  if (on && !under && performance.now() > amb.nextDrip) { drip7(); amb.nextDrip = performance.now() + 700 + Math.random() * 3500; }
+}
+addEventListener('pointerdown', initAmbience); addEventListener('keydown', initAmbience);
 
 // ---------- webcam face ----------
 let faceStream = null;
@@ -1049,13 +1360,19 @@ addEventListener('blur', () => keys.clear());
 let glitchPulse = 0, darkness = 0, blackout = null;
 function lightsFail() { if (!blackout) blackout = { t: 0 }; }
 const ray = new THREE.Raycaster();
+const _fo = new THREE.Vector3(), _fd = new THREE.Vector3();
 function freeDistance(origin, dir, max) {
+  if (l7.phase === 'room' && room7) {        // the entrance room sits sideways in world space: cast the ray in its frame
+    ray.set(_fo.copy(origin).applyQuaternion(R7.quat).add(R7.pos), _fd.copy(dir).applyQuaternion(R7.quat)); ray.far = max;
+    const hit = ray.intersectObject(room7, true)[0]; return hit ? hit.distance : max;
+  }
   ray.set(origin, dir); ray.far = max;
   const hit = ray.intersectObjects(nearMeshes(origin.x, origin.z), true)[0];
   return hit ? hit.distance : max;
 }
 function toggleEntity() {
   if (entity.visible) { entity.visible = false; glitchPulse = 0.8; return; }
+  if (l7.phase === 'room') { entity.position.set((R7.SX0 + R7.SX1) / 2, 0, R7.D / 2 - 0.3); entity.visible = true; entity.userData.t = 0; glitchPulse = 0.6; return; } // at the foot of the stairs
   const origin = new THREE.Vector3(player.pos.x, 1.4, player.pos.z);
   let best = null;
   for (const off of [0, 0.35, -0.35, 0.7, -0.7, Math.PI]) {
@@ -1080,6 +1397,40 @@ function updateHud() {
   document.getElementById('stamp').textContent = `${ap} ${h}:${pad(d.getMinutes())}  ${MON[d.getMonth()]}. ${pad(d.getDate())} ${d.getFullYear()}`;
   const s = Math.floor((performance.now() - t0) / 1000);
   document.getElementById('counter').textContent = `SP ${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
+}
+
+// ---------- Level 7: falling through the doorway, swimming ----------
+const _cw = new THREE.Vector3(), _cd = new THREE.Vector3(), _ho = new THREE.Vector3(), _rigInv = new THREE.Quaternion();
+const _lm = new THREE.Matrix4(), _lt = new THREE.Vector3();
+function beginFall7(xr) {
+  rig.updateMatrixWorld(true); camera.getWorldPosition(_cw); camera.getWorldDirection(_cd);
+  const eyeH = xr ? Math.max(0.5, camera.position.y) : 1.48;
+  if (!xr) { player.pitch = THREE.MathUtils.clamp(Math.asin(THREE.MathUtils.clamp(_cd.y, -1, 1)), -1.2, 1.2); if (Math.hypot(_cd.x, _cd.z) > 1e-3) player.yaw = Math.atan2(-_cd.x, -_cd.z); }
+  // room-local (vx, 0, vz) is world (vx, vz, 0) under the room's sideways rotation: the pull becomes the fall
+  l7.vy = player.vel.z - l7.pullV; player.vel.set(player.vel.x, 0, 0);
+  _ho.set(0, 0, 0); if (xr) _ho.set(camera.position.x, 0, camera.position.z).applyEuler(dolly.rotation);  // keep the head where it was (room-scale offset)
+  player.pos.set(_cw.x - _ho.x, 0, _cw.z - _ho.z); l7.F = _cw.y - eyeH; l7.phase = 'sea'; l7.pullV = 0;
+  rig.position.set(0, 0, 0); rig.quaternion.identity();
+  entity.visible = false;
+  fadeA = xr ? 1 : 0.6;                                                               // blink through the gravity flip (VR comfort)
+}
+function seaPhysics7(dt, time, xr) {
+  const eyeH = xr ? Math.max(0.5, camera.position.y) : 1.48;
+  const swimF = SEA_Y + 0.22 - eyeH + Math.sin(time * 1.25) * 0.045 + Math.sin(time * 0.53) * 0.03;  // treading water: head just above the swell
+  const g = groundY7(player.pos.x, player.pos.z);
+  if (g >= swimF) {                                    // standing on an island / in its shallows
+    l7.swim = false;
+    if (l7.F > g + 0.03) { l7.vy -= 9.8 * dt; l7.F += l7.vy * dt; if (l7.F <= g) { l7.F = g; l7.vy = 0; } }
+    else { l7.F += (g - l7.F) * Math.min(1, dt * 14); l7.vy = 0; }
+  } else {                                             // deep water: fall, plunge under, float back up
+    l7.swim = true;
+    const was = l7.F;
+    if (l7.F > swimF + 0.05) l7.vy -= 9.8 * dt;
+    else l7.vy += (16 * (swimF - l7.F) - 5.5 * l7.vy) * dt;
+    l7.F += l7.vy * dt;
+    if (l7.F < g) { l7.F = g; l7.vy = 0; }
+    if (was > swimF && l7.F <= swimF && l7.vy < -3) splash7();
+  }
 }
 
 // ---------- main loop ----------
@@ -1115,18 +1466,31 @@ function frame(now) {
     if (yNow && !yPrev) { setLevel(LEVEL_ORDER[(LEVEL_ORDER.indexOf(currentLevel) + 1) % LEVEL_ORDER.length]); toast(LV.name); }
     yPrev = yNow;
     if (Math.abs(tx) > 0.2) dolly.rotation.y -= tx * 1.6 * dt;   // smooth turn (gentler)
-    if (Math.hypot(mx, my) > 0.15) { const cd = new THREE.Vector3(); camera.getWorldDirection(cd); cd.y = 0; cd.normalize(); const cr = new THREE.Vector3(-cd.z, 0, cd.x); wish.addScaledVector(cd, -my).addScaledVector(cr, mx); }
+    if (Math.hypot(mx, my) > 0.15) { const cd = new THREE.Vector3(); camera.getWorldDirection(cd); cd.applyQuaternion(_rigInv.copy(rig.quaternion).invert()); cd.y = 0; cd.normalize(); const cr = new THREE.Vector3(-cd.z, 0, cd.x); wish.addScaledVector(cd, -my).addScaledVector(cr, mx); }
   }
   const running = keys.has('ShiftLeft') || keys.has('ShiftRight');
-  if (wish.lengthSq() > 0) wish.normalize().multiplyScalar(running ? 4.6 : 2.2);
+  if (wish.lengthSq() > 0) wish.normalize().multiplyScalar((running ? 4.6 : 2.2) * (l7.phase === 'sea' && l7.swim ? 0.5 : 1));  // swimming is slow
   player.vel.lerp(wish, 1 - Math.exp(-10 * dt));
   player.pos.addScaledVector(player.vel, dt);
-  collide(player.pos, 0.38);
+  if (l7.phase === 'room') {
+    collideRoom(player.pos, 0.3);
+    // "anything directly in front of the open doorway has its gravity shifted toward the ocean"
+    const edge = -R7.D / 2 + 0.6;
+    if (Math.abs(player.pos.x) < R7.DOOR_W / 2 && player.pos.z < edge) {
+      const k = (edge - player.pos.z) / 0.6;
+      l7.pullV += (2.5 + 10 * k) * dt; player.pos.z -= l7.pullV * dt;
+      fadeA = Math.max(fadeA, THREE.MathUtils.clamp((k - 0.6) * 1.4, 0, xr ? 1 : 0.5));
+      if (player.pos.z < -R7.D / 2 - 0.3) beginFall7(xr);
+    } else l7.pullV = Math.max(0, l7.pullV - dt * 8);
+  } else collide(player.pos, 0.38);
+  if (l7.phase === 'sea') seaPhysics7(dt, time, xr);
+  const baseY = l7.phase === 'sea' ? l7.F : 0;                    // feet height (Level 7 ocean: treading water / on an island)
+  const wx = l7.phase === 'room' ? 0 : player.pos.x, wz = l7.phase === 'room' ? 0 : player.pos.z;  // where you are in the world (the room hangs over 0,0)
   const speed = Math.hypot(player.vel.x, player.vel.z);
   player.speed = speed;
   player.phase += speed * dt * 2.6;
 
-  updateChunks(player.pos.x, player.pos.z);
+  updateChunks(wx, wz);
   const snap = v => Math.round(v / CELL) * CELL;
   floor.position.set(snap(player.pos.x), 0, snap(player.pos.z));
   ceil.position.set(snap(player.pos.x), WALL_H, snap(player.pos.z));
@@ -1141,7 +1505,13 @@ function frame(now) {
     else if (t < 4.2) globalLight = Math.random() < 0.5 ? 0.1 : 1;
     else blackout = null;
   }
-  if (LV.fixtureLights) {
+  if (LV.roomLamp) {
+    if (lightBudget > 0) {
+      const l = LIGHTS[li++]; l.position.copy(R7.lampWorld); l.distance = LV.lightDist; l.decay = LV.lightDecay; l.color.set(LV.lightCol);
+      let f = 1; if (Math.sin(time * 1.7) + Math.sin(time * 2.9 + 1.3) > 1.82 && Math.random() < 0.6) f = 0.15 + Math.random() * 0.3;  // an old tube that stutters now and then
+      l.intensity = LV.light * globalLight * f; tubeMat.color.setRGB(0.95, 0.953, 0.9).multiplyScalar(0.12 + 0.88 * f * globalLight);
+    }
+  } else if (LV.fixtureLights) {
     // REALISTIC light physics: pin real point lights onto the nearest rare ceiling fixtures. Each light
     // sits ON its fixture (not on the camera), so it lights the surrounding walls/floor/ceiling with true
     // inverse-square falloff and looks identical whether you're near or far — no brightening as you approach.
@@ -1195,20 +1565,23 @@ function frame(now) {
   ambient.intensity = LV.amb * globalLight + 0.015;
   ceilMat.emissiveIntensity = LV.emissive * globalLight;
   scene.fog.color.copy(LV.fog).multiplyScalar(0.08 + 0.92 * globalLight);
-  scene.background = LV.ocean && skyTex ? skyTex : scene.fog.color;   // Level 7 shows the baked sky
+  if (LV.ocean) {                                  // Level 7: under the surface it's murky near-black teal
+    camera.getWorldPosition(_cw); l7.under = l7.phase === 'sea' && _cw.y < SEA_Y - 0.03;
+    if (l7.under) scene.fog.color.set('#061519').multiplyScalar(0.3 + 0.7 * globalLight);
+    scene.fog.near = l7.under ? 0.1 : LV.fogNear; scene.fog.far = l7.under ? 9 : LV.fogFar;
+  }
+  scene.background = scene.fog.color;
+  updateAmbience(!!LV.ocean, l7.phase === 'room', l7.under, globalLight);
   if (currentLevel === 'pool') {
     poolWater.material.uniforms.time.value += dt * 0.6;                 // three.js Water animates its own ripples + reflection
     poolCausticTex.offset.set(time * 0.02 % 1, time * 0.045 % 1);       // caustics drifting on the pool bottom
   } else if (currentLevel === 'level7') {
-    oceanWater.material.uniforms.time.value += dt * 0.4;                // slow ocean swell
-    oceanWater.position.x = Math.round(player.pos.x / CELL) * CELL;     // the big plane follows the player so the sea reaches the horizon everywhere
-    oceanWater.position.z = Math.round(player.pos.z / CELL) * CELL;
-    // keep the shadow frustum over the player, but snapped to the 5 m grid so the shadow map only has to be
-    // re-rendered when you change cell (or chunks/houses stream in) — the sun and houses never move.
-    const sx = snap(player.pos.x), sz = snap(player.pos.z), key = sx + ',' + sz + ',' + chunkGen;
-    sun.position.set(sx + sunPos.x * 220, sunPos.y * 220, sz + sunPos.z * 220);
-    sun.target.position.set(sx, 0, sz); sun.target.updateMatrixWorld();
-    if (key !== shadowKey) { shadowKey = key; renderer.shadowMap.needsUpdate = true; }
+    oceanWater.material.uniforms.time.value += dt * 0.35;                // slow, heavy swell
+    oceanWater.position.x = Math.round(wx / CELL) * CELL;               // the big plane follows you so the sea reaches the haze everywhere
+    oceanWater.position.z = Math.round(wz / CELL) * CELL;
+    updateCeil7(wx, wz);
+    puddleNormal.offset.set(time * 0.01 % 1, time * 0.013 % 1);         // the puddle in the entrance room stirs
+    for (const d of debris7) { const u = d.userData; d.position.y = SEA_Y - 0.01 + Math.sin(time * 0.9 + u.ph) * 0.035; d.rotation.y = u.ry + Math.sin(time * 0.07 + u.ph) * 0.4; }  // bobbing on the swell
   }
 
   // character pose
@@ -1225,7 +1598,7 @@ function frame(now) {
   ud.legL.rotation.x = swing; ud.legR.rotation.x = -swing;
   ud.armL.rotation.x = -swing * 0.8; ud.armR.rotation.x = swing * 0.8;
   const bob = Math.abs(Math.sin(player.phase)) * 0.04 * Math.min(1, speed / 2);
-  hero.position.y = bob;
+  hero.position.y = bob + baseY;
   ud.torso.rotation.x = running && speed > 3 ? 0.12 : 0;
   ud.head.rotation.y = Math.sin(time * 0.4) * 0.05;
   if (mode === 'selfie') { ud.armR.rotation.x = -1.35; ud.armR.rotation.z = 0.15; } else ud.armR.rotation.z = 0;
@@ -1236,11 +1609,11 @@ function frame(now) {
   // slower, lower-amplitude drift = calmer and more natural handheld feel
   const handX = (Math.sin(time * 0.85) * 0.65 + Math.sin(time * 1.6) * 0.35) * 0.0072 * shake;
   const handY = (Math.sin(time * 1.05) * 0.55 + Math.sin(time * 0.65) * 0.45) * 0.0072 * shake;
-  head.set(player.pos.x, 1.46, player.pos.z);
+  head.set(player.pos.x, baseY + 1.46, player.pos.z);
   if (xr) {
-    dolly.position.set(player.pos.x, 0, player.pos.z);   // move the rig; the headset provides eye height + head rotation
+    dolly.position.set(player.pos.x, baseY, player.pos.z);   // move the rig; the headset provides eye height + head rotation
   } else if (mode === 'fp') {
-    camera.position.set(player.pos.x, 1.48 + Math.sin(player.phase * 2) * 0.022 * Math.min(1, speed / 2), player.pos.z);
+    camera.position.set(player.pos.x, baseY + 1.48 + Math.sin(player.phase * 2) * 0.022 * Math.min(1, speed / 2), player.pos.z);
     camera.rotation.set(player.pitch + handY, player.yaw + handX, Math.sin(player.phase) * 0.007 * Math.min(1, speed / 2));
   } else {
     const back = mode === 'tp' ? fwd.clone().negate() : fwd.clone();
@@ -1250,9 +1623,10 @@ function frame(now) {
     const free = freeDistance(head, tmp, dist + 0.3);
     const d = Math.max(0.4, Math.min(dist, free - 0.3));
     camera.position.copy(head).addScaledVector(tmp, d);
-    camera.position.y = Math.min(camera.position.y, WALL_H - 0.2);
+    camera.position.y = Math.min(camera.position.y, l7.phase === 'room' ? R7.H - 0.15 : LV.ocean ? SEA_CEIL - 0.2 : WALL_H - 0.2);
     if (mode === 'tp') camera.position.addScaledVector(right, 0.35 * d / dist);
-    camera.lookAt(head.x, head.y + (mode === 'selfie' ? 0.02 : 0.05), head.z);
+    _lt.set(head.x, head.y + (mode === 'selfie' ? 0.02 : 0.05), head.z);
+    camera.quaternion.setFromRotationMatrix(_lm.lookAt(camera.position, _lt, camera.up));   // local-frame lookAt (also right inside the sideways room)
     camera.rotation.x += handY; camera.rotation.y += handX;
   }
 
@@ -1260,7 +1634,7 @@ function frame(now) {
   let near = 0;
   if (entity.visible) {
     entity.userData.t += dt;
-    entity.lookAt(player.pos.x, 0, player.pos.z);
+    entity.rotation.set(0, Math.atan2(player.pos.x - entity.position.x, player.pos.z - entity.position.z), 0);  // face you (in the current frame)
     tmp.set(player.pos.x - entity.position.x, 0, player.pos.z - entity.position.z);
     const dd = tmp.length();
     const creep = entity.userData.t > 2.5 ? (dd < 8 ? 1.6 : 0.9) : 0;
@@ -1270,6 +1644,7 @@ function frame(now) {
     if (dd < 1.3) { entity.visible = false; glitchPulse = 1.4; blackout = { t: 2.6 }; }
   }
   glitchPulse = Math.max(0, glitchPulse - dt * 1.3);
+  fadeA = Math.max(0, fadeA - dt * (l7.phase === 'room' ? 0.8 : 1.6)); fadeMat.opacity = fadeA; fadeMesh.visible = fadeA > 0.01;
 
   // render
   // water mirror pass: once per frame, BEFORE the headset/eye pass (see the note at the Water setup).
@@ -1290,7 +1665,7 @@ function frame(now) {
 }
 setLevel(LEVELS[params.get('level')] ? params.get('level') : 'level0'); // set materials/lighting/fog before the first frame
 renderer.setAnimationLoop(frame);   // drives both the normal page and the VR headset session
-if (params.get('debug') === '1') window.__bk = { renderer, scene, setLevel, LIGHTS, player, applyRenderBudget };   // ?debug=1: handles for profiling/screenshots
+if (params.get('debug') === '1') window.__bk = { renderer, scene, setLevel, LIGHTS, player, applyRenderBudget, l7, keys };   // ?debug=1: handles for profiling/screenshots
 
 // for automated screenshots: ?entity=1 spawns one immediately
 if (params.get('entity') === '1') setTimeout(toggleEntity, 50);
