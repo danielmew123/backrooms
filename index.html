@@ -1126,7 +1126,7 @@ function collideSpiral(ro, px0, pz0, F) {
   const dx = player.pos.x - ro.cx, dz = player.pos.z - ro.cz, r = Math.hypot(dx, dz) || 1e-6, rp = Math.hypot(px0 - ro.cx, pz0 - ro.cz);
   let tr = null;
   const onLand = Math.abs(angDiff(Math.atan2(dx, dz), ROT.PHI_LAND)) < ROT.LANDW;
-  if (F > STORY - 0.1 && r < ROT.HOLE && !onLand && rp < ROT.HOLE) { player.pos.x = px0; player.pos.z = pz0; return; }  // at the top: only the landing, no stepping off into the hole
+  if (F > STORY - 0.1 && r < ROT.HOLE && !onLand && rp < ROT.HOLE && poolGroundS(player.pos.x, player.pos.z, F) < F - 0.5) { player.pos.x = px0; player.pos.z = pz0; return; }  // at the top: you can step down onto the next step, but not off into the hole
   if (r < ROT.COL + 0.3) tr = ROT.COL + 0.3;
   else if (F > 0.6 && F < STORY - 0.1 && rp < ROT.HOLE && r > ROT.RO - 0.2) tr = ROT.RO - 0.2;   // invisible handrail on the open spiral
   else if (F > STORY - 0.5) {                                                // upstairs: the curb around the hole, open where the stairs arrive
