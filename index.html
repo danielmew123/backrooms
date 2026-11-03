@@ -222,10 +222,10 @@ function causticTex(size) {
 }
 const poolCausticTex = causticTex(128); poolCausticTex.repeat.set(1.3, 1.3);        // used ONLY by the projected caustic overlay, never baked into a tile
 // Poolrooms tile materials — these are plain tiles, nothing else painted on
-const poolTileMat  = new THREE.MeshLambertMaterial({ map: poolTileTex, roughness: 0.7, metalness: 0, side: THREE.DoubleSide });          // matte walls
-const poolDeckMat  = new THREE.MeshLambertMaterial({ map: poolTileTex, roughness: 0.28, metalness: 0.15, side: THREE.DoubleSide });     // wet, reflective walkway
-const poolBasinMat = new THREE.MeshLambertMaterial({ map: poolBasinTex, roughness: 0.42, metalness: 0, side: THREE.DoubleSide, emissive: new THREE.Color(0x1ec0d2), emissiveIntensity: 1.25 }); // the pool floor glows teal, so the water reads luminous in the dim rooms
-const poolColMat   = new THREE.MeshLambertMaterial({ map: poolColTex, roughness: 0.55, metalness: 0 });
+const poolTileMat  = new THREE.MeshLambertMaterial({ map: poolTileTex, side: THREE.DoubleSide });          // matte walls
+const poolDeckMat  = new THREE.MeshLambertMaterial({ map: poolTileTex, side: THREE.DoubleSide });     // wet, reflective walkway
+const poolBasinMat = new THREE.MeshLambertMaterial({ map: poolBasinTex, side: THREE.DoubleSide, emissive: new THREE.Color(0x1ec0d2), emissiveIntensity: 1.25 }); // the pool floor glows teal, so the water reads luminous in the dim rooms
+const poolColMat   = new THREE.MeshLambertMaterial({ map: poolColTex });
 // additive caustic LIGHT, drawn only on the submerged pool floor
 const poolCausticMat = new THREE.MeshBasicMaterial({ map: poolCausticTex, color: 0x5fe6f4, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, vertexColors: true, toneMapped: false, side: THREE.DoubleSide }); // bright cyan caustics
 const POOL_DEPTH = 1.3, POOL_WATER = -0.16; // dry deck at y=0; pools sink to -POOL_DEPTH, the Water surface sits at POOL_WATER (just below the deck)
@@ -255,7 +255,7 @@ const concCeilTex = canvasTex(512, 512, (g, w, h) => {
   for (let i = 0; i <= 4; i++) { const p = i * w / 4; g.beginPath(); g.moveTo(p, 0); g.lineTo(p, h); g.stroke(); g.beginPath(); g.moveTo(0, p); g.lineTo(w, p); g.stroke(); }
   for (let i = 0; i < 12; i++) { const x = Math.random() * w, y = Math.random() * h, r = 20 + Math.random() * 50, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, 'rgba(16,15,12,0.32)'); rg.addColorStop(1, 'rgba(16,15,12,0)'); g.fillStyle = rg; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
 });
-const pipeMat = new THREE.MeshLambertMaterial({ color: '#746b5c', roughness: 0.5, metalness: 0.55 });
+const pipeMat = new THREE.MeshLambertMaterial({ color: '#746b5c' });
 const pipeGeo = new THREE.CylinderGeometry(1, 1, 1, 9);
 const bulbMat = new THREE.MeshBasicMaterial({ color: '#ffdf9c', fog: true }); // self-lit fixture — always reads as "on", even far down the hall
 const bulbGeo = new THREE.BoxGeometry(0.9, 0.07, 0.32);
@@ -277,9 +277,9 @@ const houseTex = canvasTex(256, 256, (g, w, h) => {
   for (let i = 0; i < 8; i++) { const x = Math.random() * w, y = h * (0.4 + Math.random() * 0.6), r = 14 + Math.random() * 40, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, 'rgba(26,30,26,0.4)'); rg.addColorStop(1, 'rgba(26,30,26,0)'); g.fillStyle = rg; g.fillRect(x - r, y - r, 2 * r, 2 * r); } // waterline grime
 });
 houseTex.wrapS = houseTex.wrapT = THREE.RepeatWrapping; houseTex.repeat.set(2, 2);
-const houseMat = new THREE.MeshLambertMaterial({ map: houseTex, roughness: 0.9, metalness: 0, side: THREE.DoubleSide });
-const roofMat = new THREE.MeshLambertMaterial({ color: '#4a4640', roughness: 0.95, metalness: 0 });   // dark weathered roof/shingle
-const winMat = new THREE.MeshLambertMaterial({ color: '#0a0f13', roughness: 0.2, metalness: 0.35, side: THREE.DoubleSide }); // dark broken glass
+const houseMat = new THREE.MeshLambertMaterial({ map: houseTex, side: THREE.DoubleSide });
+const roofMat = new THREE.MeshLambertMaterial({ color: '#4a4640' });   // dark weathered roof/shingle
+const winMat = new THREE.MeshLambertMaterial({ color: '#0a0f13', side: THREE.DoubleSide }); // dark broken glass
 const HS = 4.6;                                                    // flooded-house footprint
 const isHouse7 = (i, j) => Math.abs(i) > 1 || Math.abs(j) > 1 ? hash(i, j, 77) < 0.016 : false; // rare houses, never on spawn
 
@@ -292,7 +292,7 @@ renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadow
 renderer.xr.enabled = true;                              // WebXR (VR headsets)
 // VR performance is fill-rate bound, NOT geometry (draw calls are only ~40-70). setPixelRatio does
 // nothing in VR — the headset renders into its own XR framebuffer. These two are the real VR levers:
-renderer.xr.setFramebufferScaleFactor(0.8);              // render each eye at 80% res — ~36% fewer fragments, the biggest VR win
+renderer.xr.setFramebufferScaleFactor(THREE.MathUtils.clamp(parseFloat(params.get('xrscale')) || 0.7, 0.4, 1)); // render each eye at 70% res (~half the fragments of native) — the biggest VR win; ?xrscale=0.8 to trade speed for sharpness
 renderer.xr.setFoveation(1);                             // max fixed-foveated rendering: periphery drawn at lower res (cheap), center stays sharp
 document.body.prepend(renderer.domElement);
 document.body.appendChild(VRButton.createButton(renderer));  // "ENTER VR" button (shows on headsets / WebXR browsers)
@@ -311,8 +311,8 @@ camera.rotation.order = 'YXZ';
 // VR rig: in XR the headset drives the camera, so we move this dolly for locomotion and let XR pose the camera.
 const dolly = new THREE.Group(); dolly.add(camera); scene.add(dolly);
 let yPrev = false;   // edge-detect the VR Y button (cycle rooms)
-renderer.xr.addEventListener('sessionstart', () => { help.classList.add('hidden'); mode = 'fp'; });
-renderer.xr.addEventListener('sessionend', () => { dolly.position.set(0, 0, 0); dolly.rotation.set(0, 0, 0); });
+renderer.xr.addEventListener('sessionstart', () => { help.classList.add('hidden'); mode = 'fp'; applyRenderBudget(true); });
+renderer.xr.addEventListener('sessionend', () => { dolly.position.set(0, 0, 0); dolly.rotation.set(0, 0, 0); applyRenderBudget(false); });
 
 // three.js reflective Water — one plane for all the Poolrooms pools, its geometry rebuilt as you move.
 // It renders a real mirror reflection of the room + a moving normal-map ripple + a warm sun glint.
@@ -341,15 +341,21 @@ oceanWater.rotation.x = -Math.PI / 2; oceanWater.position.y = OCEAN_Y;
 oceanWater.material.transparent = true; oceanWater.material.uniforms.size.value = 10.0;
 oceanWater.renderOrder = 2; oceanWater.visible = false;
 scene.add(oceanWater);
+// THREE.Water renders its mirror (a whole extra scene pass) in onBeforeRender. In VR three.js draws the
+// scene once PER EYE, so that fired twice a frame — and in the MIDDLE of the headset pass (water is drawn
+// last), forcing the Quest's tiled GPU to flush the half-drawn eye buffer to memory, render the mirror,
+// then reload it. Instead we pull the mirror pass out and run it once per frame, before the headset pass
+// starts (see frame()). Both eyes sample the same reflection, which is invisible on rippled water.
+for (const w of [poolWater, oceanWater]) { w.userData.reflect = w.onBeforeRender; w.onBeforeRender = () => {}; }
 
 const hemi = new THREE.HemisphereLight('#fff2c0', '#7a6428', 2.1);
 scene.add(hemi);
 const ambient = new THREE.AmbientLight('#f5e3a0', 0.35);
 scene.add(ambient);
 
-const wallMat = new THREE.MeshLambertMaterial({ map: wallTex, roughness: 0.92, metalness: 0 });
-const floorMat = new THREE.MeshLambertMaterial({ map: carpetTex, roughness: 1, metalness: 0 });
-const ceilMat = new THREE.MeshLambertMaterial({ map: ceilTex, emissiveMap: ceilEmit, emissive: new THREE.Color('#fff6d8'), emissiveIntensity: 1.4, roughness: 0.9 });
+const wallMat = new THREE.MeshLambertMaterial({ map: wallTex });
+const floorMat = new THREE.MeshLambertMaterial({ map: carpetTex });
+const ceilMat = new THREE.MeshLambertMaterial({ map: ceilTex, emissiveMap: ceilEmit, emissive: new THREE.Color('#fff6d8'), emissiveIntensity: 1.4 });
 
 const PLANE = 240;
 carpetTex.repeat.set(PLANE / CELL, PLANE / CELL);
@@ -369,12 +375,29 @@ for (let i = 0; i < 9; i++) {   // ceiling lights around the player; the nearest
   // (a single cheap directional shadow) casts. Indoor depth now comes from falloff + fog instead.
   scene.add(l); LIGHTS.push(l);
 }
+// Every *visible* light is looped over by EVERY lit pixel (forward rendering) — even at intensity 0.
+// So the light count is a direct fill-rate cost. Desktop keeps 9; VR keeps the 4 nearest (fixtures are
+// sparse and fall off within ~15 m, so the 4 nearest are nearly always all the ones that reach you);
+// levels with no point lights (Level 7) keep none. Changing the count recompiles shaders, so it only
+// happens on level change / entering or leaving VR.
+const VR_LIGHTS = 4;
+let lightBudget = LIGHTS.length;
 const sun = new THREE.DirectionalLight('#ffe7c2', 0); // warm "sunlight" for the Poolrooms (off in Level 0); also the Level 7 sun
 sun.position.set(9, 13, 5); scene.add(sun); scene.add(sun.target);
 sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.near = 1; sun.shadow.camera.far = 320;
 sun.shadow.camera.left = -70; sun.shadow.camera.right = 70; sun.shadow.camera.top = 70; sun.shadow.camera.bottom = -70;
 sun.shadow.bias = -0.0005;
+renderer.shadowMap.autoUpdate = false;   // the sun shadow is re-rendered only when it actually changes (see frame()), not every frame
+let shadowKey = '', chunkGen = 0;
+function applyRenderBudget(vr = renderer.xr.isPresenting) {
+  lightBudget = !LV || LV.light <= 0 ? 0 : vr ? VR_LIGHTS : LIGHTS.length;
+  LIGHTS.forEach((l, i) => { l.visible = i < lightBudget; });
+  sun.visible = !!LV && LV.sun > 0;                       // the sun is only used on Level 7 — otherwise it was a dead light in every shader
+  const ms = vr ? 1024 : 2048;                            // VR: quarter the shadow-map pixels (soft dusk shadows across water don't need 2048)
+  if (sun.shadow.mapSize.x !== ms) { sun.shadow.mapSize.set(ms, ms); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
+  shadowKey = '';
+}
 
 // Level 7 atmospheric sky + a low sun the ocean reflects
 const sky = new Sky(); sky.scale.setScalar(12000); sky.visible = false; scene.add(sky);
@@ -387,6 +410,19 @@ function setOceanSun(elevDeg, aziDeg) {
   oceanWater.material.uniforms.sunDirection.value.copy(sunPos).normalize();
 }
 setOceanSun(5, 150);  // very low sun -> bleak dusk horizon glow + a glint streak on the sea
+// The Sky shader runs heavy atmospheric-scattering math on every sky pixel (half the view on Level 7,
+// per eye, plus again inside the ocean's mirror pass). The sun never moves, so bake it ONCE into a cube
+// map and show that as the background instead — identical look, a single texture lookup per pixel.
+// (Rendered to a linear HalfFloat target; tone mapping is applied when the background is drawn, as before.)
+let skyTex = null;
+function bakeSky() {
+  if (skyTex) return skyTex;
+  const rt = new THREE.WebGLCubeRenderTarget(512, { type: THREE.HalfFloatType, generateMipmaps: false });
+  const s = new THREE.Scene(); s.add(sky); sky.visible = true;   // moves the Sky out of the main scene for good
+  new THREE.CubeCamera(1, 20000, rt).update(renderer, s);
+  sky.visible = false;
+  return (skyTex = rt.texture);
+}
 
 // ---------- levels ----------
 // Wider light range + stronger ambient fill than before, so the floor no longer shows a dark
@@ -440,7 +476,8 @@ function setLevel(name) {
   scene.fog.near = L.fogNear; scene.fog.far = L.fogFar; scene.background = L.fog;
   floor.visible = !L.water;                                   // Poolrooms supplies its own per-cell floor
   ceil.visible = !L.ocean;                                    // the ocean level is open to the (foggy) sky — no ceiling
-  oceanWater.visible = !!L.ocean; sky.visible = !!L.ocean; sun.castShadow = !!L.ocean;  // only the ocean level casts sun shadows
+  oceanWater.visible = !!L.ocean; sun.castShadow = !!L.ocean;  // only the ocean level casts sun shadows
+  if (L.ocean) bakeSky();                                     // baked sky cube map is used as the background (see frame())
   if (L.ocean) { sun.position.copy(sunPos).multiplyScalar(220); sun.color.set(L.lightCol); }
   if (typeof poolWater !== 'undefined') { poolWater.visible = false; waterChunkSig = ''; } // force a water rebuild for the new level
   if (typeof chunks !== 'undefined') {                        // rebuild the world for the new level
@@ -448,6 +485,7 @@ function setLevel(name) {
     chunks.clear(); cellCache.clear();
   }
   if (typeof player !== 'undefined') { player.pos.set(CELL / 2, 0, CELL / 2); player.vel.set(0, 0, 0); } // drop at the room's always-clear spawn so you never land inside a wall after switching rooms
+  applyRenderBudget();                                        // light count / shadow res for this level (+ VR or not)
 }
 
 // ---------- level generation ----------
@@ -769,13 +807,19 @@ function addPipes(group, i0, j0, i1, j1) {
 }
 function updateChunks(px, pz) {
   const ccx = Math.floor(px / (CELL * CHUNK)), ccz = Math.floor(pz / (CELL * CHUNK));
-  const want = new Set();
+  const want = new Set(), far = [];
+  // Crossing a chunk border used to build a whole row of 5 chunks (geometry + GPU upload) in ONE frame —
+  // a visible hitch/judder in VR. Now only the 3x3 around you is built immediately (you can collide with /
+  // see it up close); the outer ring, which sits out in the fog, streams in at most one chunk per frame.
   for (let dx = -VIEW_CHUNKS; dx <= VIEW_CHUNKS; dx++)
     for (let dz = -VIEW_CHUNKS; dz <= VIEW_CHUNKS; dz++) {
       const k = (ccx + dx) + ',' + (ccz + dz); want.add(k);
-      if (!chunks.has(k)) chunks.set(k, buildChunk(ccx + dx, ccz + dz));
+      if (chunks.has(k)) continue;
+      if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1) { chunks.set(k, buildChunk(ccx + dx, ccz + dz)); chunkGen++; }
+      else far.push([dx * dx + dz * dz, k, ccx + dx, ccz + dz]);
     }
-  for (const [k, m] of chunks) if (!want.has(k)) { scene.remove(m); m.traverse(o => o.geometry && o.geometry.dispose()); chunks.delete(k); }
+  if (far.length) { far.sort((a, b) => a[0] - b[0]); const [, k, x, z] = far[0]; chunks.set(k, buildChunk(x, z)); chunkGen++; }
+  for (const [k, m] of chunks) if (!want.has(k)) { scene.remove(m); m.traverse(o => o.geometry && o.geometry.dispose()); chunks.delete(k); chunkGen++; }
   if (cellCache.size > 20000) cellCache.clear();
   if (currentLevel === 'pool') {                              // rebuild the Water plane only when the loaded set changed
     const sig = [...chunks.keys()].sort().join('|');
@@ -810,12 +854,12 @@ function collide(pos, r) {
 // ---------- character ----------
 function makeCharacter() {
   const g = new THREE.Group();
-  const M = c => new THREE.MeshLambertMaterial({ color: c, roughness: 0.85 });
+  const M = c => new THREE.MeshLambertMaterial({ color: c });
   const hoodie = M('#3b4049'), jeans = M('#2c3a57'), shoe = M('#1b1b1d'), skin = M('#d9a27e'), hair = M('#2a1d14');
   const box = (w, h, d, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
   const torso = box(0.46, 0.62, 0.26, hoodie); torso.position.y = 1.16; g.add(torso);
   const hood = box(0.36, 0.1, 0.22, hoodie); hood.position.set(0, 1.5, -0.06); g.add(hood);
-  const faceMat = new THREE.MeshLambertMaterial({ color: '#d9a27e', roughness: 0.8 });
+  const faceMat = new THREE.MeshLambertMaterial({ color: '#d9a27e' });
   const headMats = [skin, skin, hair, skin, faceMat, hair]; // +x -x +y -y +z(front) -z(back)
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.36, 0.32), headMats);
   head.position.y = 1.66; g.add(head);
@@ -1039,7 +1083,7 @@ function updateHud() {
 }
 
 // ---------- main loop ----------
-const tmp = new THREE.Vector3(), head = new THREE.Vector3();
+const tmp = new THREE.Vector3(), head = new THREE.Vector3(), _frustum = new THREE.Frustum(), _pv = new THREE.Matrix4();
 let last = performance.now(), hudT = 0;
 function frame(now) {
   const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now;
@@ -1110,7 +1154,7 @@ function frame(now) {
       found.push([(lx - player.pos.x) ** 2 + (lz - player.pos.z) ** 2, lx, lz, i, j]);
     }
     found.sort((a, b) => a[0] - b[0]);
-    const n = Math.min(found.length, LIGHTS.length);
+    const n = Math.min(found.length, lightBudget);
     for (; li < n; li++) {
       const fx = found[li], l = LIGHTS[li];
       l.position.set(fx[1], WALL_H - 0.14, fx[2]);
@@ -1128,16 +1172,17 @@ function frame(now) {
       if (isDeep(i, j) && hash(i, j, 88) < plr) { const lx = i * CELL + CELL / 2, lz = j * CELL + CELL / 2; found.push([(lx - player.pos.x) ** 2 + (lz - player.pos.z) ** 2, lx, lz]); }  // only some pools get a light, so the glow is sparser
     }
     found.sort((a, b) => a[0] - b[0]);
-    const n = Math.min(found.length, LIGHTS.length);
+    const n = Math.min(found.length, lightBudget);
     for (; li < n; li++) {
       const fx = found[li], l = LIGHTS[li];
       l.position.set(fx[1], POOL_WATER + 0.5, fx[2]);
       l.distance = LV.lightDist; l.decay = LV.lightDecay; l.color.set(LV.lightCol);
       l.intensity = LV.light * globalLight;
     }
-  } else {
+  } else if (lightBudget > 0) {
     const LR = LV.lightRadius || 1;    // other levels: a small grid of lights around the player (off when LV.light is 0)
     for (let di = -LR; di <= LR; di++) for (let dj = -LR; dj <= LR; dj++) {
+      if (li >= lightBudget) break;
       const i = ci + di, j = cj + dj, l = LIGHTS[li++];
       l.position.set(i * CELL + CELL / 2, WALL_H - 0.15, j * CELL + CELL / 2);
       let f = 1;
@@ -1150,7 +1195,7 @@ function frame(now) {
   ambient.intensity = LV.amb * globalLight + 0.015;
   ceilMat.emissiveIntensity = LV.emissive * globalLight;
   scene.fog.color.copy(LV.fog).multiplyScalar(0.08 + 0.92 * globalLight);
-  scene.background = scene.fog.color;
+  scene.background = LV.ocean && skyTex ? skyTex : scene.fog.color;   // Level 7 shows the baked sky
   if (currentLevel === 'pool') {
     poolWater.material.uniforms.time.value += dt * 0.6;                 // three.js Water animates its own ripples + reflection
     poolCausticTex.offset.set(time * 0.02 % 1, time * 0.045 % 1);       // caustics drifting on the pool bottom
@@ -1158,8 +1203,12 @@ function frame(now) {
     oceanWater.material.uniforms.time.value += dt * 0.4;                // slow ocean swell
     oceanWater.position.x = Math.round(player.pos.x / CELL) * CELL;     // the big plane follows the player so the sea reaches the horizon everywhere
     oceanWater.position.z = Math.round(player.pos.z / CELL) * CELL;
-    sun.position.set(player.pos.x + sunPos.x * 220, sunPos.y * 220, player.pos.z + sunPos.z * 220); // keep the shadow frustum over the player
-    sun.target.position.set(player.pos.x, 0, player.pos.z); sun.target.updateMatrixWorld();
+    // keep the shadow frustum over the player, but snapped to the 5 m grid so the shadow map only has to be
+    // re-rendered when you change cell (or chunks/houses stream in) — the sun and houses never move.
+    const sx = snap(player.pos.x), sz = snap(player.pos.z), key = sx + ',' + sz + ',' + chunkGen;
+    sun.position.set(sx + sunPos.x * 220, sunPos.y * 220, sz + sunPos.z * 220);
+    sun.target.position.set(sx, 0, sz); sun.target.updateMatrixWorld();
+    if (key !== shadowKey) { shadowKey = key; renderer.shadowMap.needsUpdate = true; }
   }
 
   // character pose
@@ -1223,14 +1272,25 @@ function frame(now) {
   glitchPulse = Math.max(0, glitchPulse - dt * 1.3);
 
   // render
+  // water mirror pass: once per frame, BEFORE the headset/eye pass (see the note at the Water setup).
+  // In VR it uses the combined both-eyes XR camera, posed for THIS frame (headset pose + dolly position).
+  const water = poolWater.visible ? poolWater : oceanWater.visible ? oceanWater : null;
+  if (water) {
+    scene.updateMatrixWorld();
+    if (xr) renderer.xr.updateCamera(camera);
+    const rc = xr ? renderer.xr.getCamera() : camera;
+    _frustum.setFromProjectionMatrix(_pv.multiplyMatrices(rc.projectionMatrix, rc.matrixWorldInverse));
+    if (_frustum.intersectsObject(water)) water.userData.reflect(renderer, scene, rc);   // skip the mirror when no water is in view (as three's culling did before)
+  }
   if (!xr) renderer.setRenderTarget(null);   // in VR, three binds the headset framebuffer — don't force it back to the page canvas (that caused an all-black headset)
-  renderer.render(scene, camera);   // THREE.Water does its reflection pass in onBeforeRender
+  renderer.render(scene, camera);
 
   hudT -= dt; if (hudT <= 0) { updateHud(); hudT = 0.25; }
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) document.getElementById('toast').style.opacity = 0; }
 }
 setLevel(LEVELS[params.get('level')] ? params.get('level') : 'level0'); // set materials/lighting/fog before the first frame
 renderer.setAnimationLoop(frame);   // drives both the normal page and the VR headset session
+if (params.get('debug') === '1') window.__bk = { renderer, scene, setLevel, LIGHTS, player, applyRenderBudget };   // ?debug=1: handles for profiling/screenshots
 
 // for automated screenshots: ?entity=1 spawns one immediately
 if (params.get('entity') === '1') setTimeout(toggleEntity, 50);
