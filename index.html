@@ -602,7 +602,7 @@ function setLevel(name) {
   camera.far = L.far || 120; camera.updateProjectionMatrix();
   sky94.visible = far94.visible = grain94.visible = !!L.terrain; far94Key = '';
   for (const a of anims94) a.visible = false;
-  oceanWater.visible = !!L.ocean; sun.castShadow = false;
+  oceanWater.visible = !!L.ocean; sun.castShadow = !!L.terrain;   // Level 94: real sun shadows
   ceil7.visible = !!L.ocean; ceil7Key = '';
   if (L.ocean) { buildRoom7(); buildDebris7(); }
   if (room7) room7.visible = !!L.ocean;
@@ -1707,11 +1707,42 @@ function distRoad94(x, z) {
   return d;
 }
 // ---- textures / materials ----
-const grassTex = canvasTex(256, 256, (g, w, h) => {
-  g.fillStyle = '#74b23f'; g.fillRect(0, 0, w, h); g.fillStyle = '#82bf49'; g.fillRect(0, 0, w, h / 2);   // mowing stripes
-  for (let i = 0; i < 9000; i++) { g.fillStyle = Math.random() < 0.5 ? `rgba(40,90,20,${Math.random() * 0.22})` : `rgba(190,230,120,${Math.random() * 0.16})`; g.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 2, 1 + Math.random() * 3); } // felt-like grain
+const grassTex = canvasTex(512, 512, (g, w, h) => {
+  const gr = g.createLinearGradient(0, 0, 0, h);                                           // soft, wide mowing stripes (one light + one dark band per tile)
+  gr.addColorStop(0, '#7cba45'); gr.addColorStop(0.42, '#86c34c'); gr.addColorStop(0.5, '#6dab3b'); gr.addColorStop(0.92, '#66a337'); gr.addColorStop(1, '#7cba45');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 26000; i++) {                                                         // individual blades
+    const x = Math.random() * w, y = Math.random() * h, l = 3 + Math.random() * 6, a = -Math.PI / 2 + (Math.random() - 0.5) * 0.9, sh = Math.random();
+    g.strokeStyle = sh < 0.45 ? `rgba(46,96,24,${0.25 + Math.random() * 0.3})` : sh < 0.85 ? `rgba(150,205,90,${0.2 + Math.random() * 0.25})` : `rgba(190,200,110,${0.25})`;
+    g.lineWidth = 1 + Math.random(); g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+  }
 });
-const grassMat = new THREE.MeshLambertMaterial({ map: grassTex });
+const grassMat = new THREE.MeshLambertMaterial({ map: grassTex, vertexColors: true });
+// painted clapboard siding, shingles, foliage and asphalt (tinted per object by vertex colour)
+const sidingTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#f2efe8'; g.fillRect(0, 0, w, h);
+  const n = 10, bh = h / n;
+  for (let k = 0; k < n; k++) { const y = k * bh, gr = g.createLinearGradient(0, y, 0, y + bh); gr.addColorStop(0, 'rgba(255,255,255,0.5)'); gr.addColorStop(0.85, 'rgba(0,0,0,0.05)'); gr.addColorStop(1, 'rgba(0,0,0,0.28)'); g.fillStyle = gr; g.fillRect(0, y, w, bh); }
+  speckle(g, w, h, 5000, 0.05, false); for (let i = 0; i < 40; i++) { g.fillStyle = `rgba(90,80,60,${Math.random() * 0.06})`; g.fillRect(Math.random() * w, Math.random() * h, 20 + Math.random() * 60, 2); }   // weathered paint
+});
+const shingleTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#d8d0cc'; g.fillRect(0, 0, w, h);
+  const rows = 12, rh = h / rows;
+  for (let r = 0; r < rows; r++) for (let x = -(r % 2) * 11; x < w; x += 22) { const v = 0.75 + Math.random() * 0.35; g.fillStyle = `rgb(${215 * v | 0},${205 * v | 0},${200 * v | 0})`; g.fillRect(x + 1, r * rh + 1, 20, rh - 1); g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(x, r * rh + rh - 3, 22, 3); }
+});
+const leafTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#b9cfa8'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 2600; i++) { const x = Math.random() * w, y = Math.random() * h, r = 2 + Math.random() * 5, v = Math.random(); g.fillStyle = v < 0.4 ? 'rgba(40,70,25,0.55)' : v < 0.8 ? 'rgba(120,170,80,0.5)' : 'rgba(225,240,190,0.45)'; g.beginPath(); g.ellipse(x, y, r, r * 0.6, Math.random() * 3, 0, 7); g.fill(); }
+});
+const asphaltTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#5c5e62'; g.fillRect(0, 0, w, h); speckle(g, w, h, 30000, 0.25, false); speckle(g, w, h, 9000, 0.12, true);
+  const ed = g.createLinearGradient(0, 0, w, 0); ed.addColorStop(0, 'rgba(30,30,30,0.45)'); ed.addColorStop(0.08, 'rgba(30,30,30,0)'); ed.addColorStop(0.92, 'rgba(30,30,30,0)'); ed.addColorStop(1, 'rgba(30,30,30,0.45)'); g.fillStyle = ed; g.fillRect(0, 0, w, h);
+  g.strokeStyle = 'rgba(20,20,20,0.4)'; g.lineWidth = 1; for (let i = 0; i < 6; i++) { g.beginPath(); let x = Math.random() * w, y = Math.random() * h; g.moveTo(x, y); for (let k = 0; k < 5; k++) { x += (Math.random() - 0.5) * 40; y += Math.random() * 40; g.lineTo(x, y); } g.stroke(); }   // cracks
+});
+const sidingMat = new THREE.MeshLambertMaterial({ map: sidingTex, vertexColors: true });
+const roofMat94 = new THREE.MeshLambertMaterial({ map: shingleTex, vertexColors: true });
+const leafMat = new THREE.MeshLambertMaterial({ map: leafTex, vertexColors: true });
+const roadMat94 = new THREE.MeshLambertMaterial({ map: asphaltTex });
 const toonMat = new THREE.MeshLambertMaterial({ vertexColors: true });
 const winMat94 = new THREE.MeshBasicMaterial({ color: '#16181d', fog: true });          // windows: black by day, warm light at night
 const lampMat94 = new THREE.MeshBasicMaterial({ color: '#e8e2cc', fog: true });
@@ -1722,26 +1753,44 @@ const vanMat = new THREE.MeshLambertMaterial({ map: vanTex });
 // vertex-coloured batch: everything in a chunk goes into one toon mesh (+ one window mesh) -> few draw calls
 const _bm = new THREE.Matrix4(), _bq = new THREE.Quaternion(), _be = new THREE.Euler(), _bv = new THREE.Vector3(), _bs = new THREE.Vector3(), _bc = new THREE.Color();
 function batch94() {
-  const T = { P: [], N: [], C: [] }, W = { P: [], N: [] }, L = { P: [], N: [] };
-  const put = (dst, geo, M, col) => {
-    const g = (geo.index ? geo.toNonIndexed() : geo.clone()).applyMatrix4(M);
-    for (const v of g.attributes.position.array) dst.P.push(v); for (const v of g.attributes.normal.array) dst.N.push(v);
-    if (col && dst.C) { _bc.set(col); for (let k = 0; k < g.attributes.position.count; k++) dst.C.push(_bc.r, _bc.g, _bc.b); }
+  const T = { P: [], N: [], C: [] }, W = { P: [], N: [] }, L = { P: [], N: [] }, S = { P: [], N: [], C: [], U: [], sc: 0.5 }, R = { P: [], N: [], C: [], U: [] }, F = { P: [], N: [], C: [], U: [], sc: 0.45 };
+  const put = (dst, geo, M, col, us, vs) => {
+    const g = (geo.index ? geo.toNonIndexed() : geo.clone()).applyMatrix4(M), pa = g.attributes.position, na = g.attributes.normal;
+    for (const v of pa.array) dst.P.push(v); for (const v of na.array) dst.N.push(v);
+    if (col && dst.C) { _bc.set(col); for (let k = 0; k < pa.count; k++) dst.C.push(_bc.r, _bc.g, _bc.b); }
+    if (dst.U) {
+      if (us) { const ua = g.attributes.uv; for (let k = 0; k < pa.count; k++) dst.U.push(ua.getX(k) * us, ua.getY(k) * vs); }   // the box's own UVs, scaled to its size (roof rows run along the ridge)
+      else for (let k = 0; k < pa.count; k++) {                                                                                     // world-projected UVs (siding boards stay level and to scale)
+        const x = pa.getX(k), y = pa.getY(k), z = pa.getZ(k), nx = Math.abs(na.getX(k)), ny = Math.abs(na.getY(k)), nz = Math.abs(na.getZ(k));
+        dst.U.push((ny > 0.75 ? x : nx > nz ? z : x) * dst.sc, (ny > 0.75 ? z : y) * dst.sc);
+      }
+    }
     g.dispose();
   };
   const mat = (x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1, parent = null) => { _bm.compose(_bv.set(x, y, z), _bq.setFromEuler(_be.set(rx, ry, rz)), _bs.set(sx, sy, sz)); return parent ? parent.clone().multiply(_bm) : _bm.clone(); };
   return {
     mat,
     add(geo, col, M) { put(T, geo, M, col); }, win(geo, M) { put(W, geo, M); }, lamp(geo, M) { put(L, geo, M); },
+    siding(geo, col, M) { put(S, geo, M, col); }, roof(geo, col, M, us, vs) { put(R, geo, M, col, us, vs); }, leaf(geo, col, M) { put(F, geo, M, col); },
     emit(group) {
-      const mk = (d, m, c) => { if (!d.P.length) return; const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(d.P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(d.N, 3)); if (c) g.setAttribute('color', new THREE.Float32BufferAttribute(d.C, 3)); g.computeBoundingSphere(); group.add(new THREE.Mesh(g, m)); };
-      mk(T, toonMat, true); mk(W, winMat94); mk(L, lampMat94); return group;
+      const mk = (d, m, c) => { if (!d.P.length) return; const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(d.P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(d.N, 3));
+        if (c) g.setAttribute('color', new THREE.Float32BufferAttribute(d.C, 3)); if (d.U) g.setAttribute('uv', new THREE.Float32BufferAttribute(d.U, 2)); g.computeBoundingSphere(); group.add(new THREE.Mesh(g, m)); };
+      mk(T, toonMat, true); mk(W, winMat94); mk(L, lampMat94); mk(S, sidingMat, true); mk(R, roofMat94, true); mk(F, leafMat, true); return group;
     },
   };
 }
 const G94 = { box: new THREE.BoxGeometry(1, 1, 1), cyl: new THREE.CylinderGeometry(1, 1, 1, 14), cyl8: new THREE.CylinderGeometry(1, 1, 1, 8), sph: new THREE.SphereGeometry(1, 12, 9), cone: new THREE.ConeGeometry(1, 1, 14) };
 // ---- objects (deterministic per chunk) ----
 const obj94Cache = new Map();
+// just the houses on a chunk's lots (used to keep trees clear of neighbouring houses without recursion)
+function houseLots94(cx, cz) {
+  const S = T94.CH, x0 = cx * S, z0 = cz * S, out = [], ccx = x0 + S / 2, ccz = z0 + S / 2;
+  ROADS94.forEach((rd, k) => { const tc = ccx * rd.dx + ccz * rd.dz;
+    for (let n = 0; ; n++) { const t = 30 + n * 15; if (t > 150) break; if (Math.abs(t - tc) > 45) continue;
+      const p = roadPt(rd, t), [dx, dz] = roadDir(rd, t);
+      for (const side of [-1, 1]) { const hx = p[0] - dz * side * 11, hz = p[1] + dx * side * 11; if (hx >= x0 && hx < x0 + S && hz >= z0 && hz < z0 + S) out.push({ k: 'house', x: hx, z: hz }); } } });
+  return out;
+}
 function objects94(cx, cz) {
   const key = cx + ',' + cz; if (obj94Cache.has(key)) return obj94Cache.get(key);
   const S = T94.CH, x0 = cx * S, z0 = cz * S, inC = (x, z) => x >= x0 && x < x0 + S && z >= z0 && z < z0 + S, out = [], ccx = x0 + S / 2, ccz = z0 + S / 2;
@@ -1776,31 +1825,46 @@ function objects94(cx, cz) {
   if (H(20) < 0.12) { const [x, z] = J(21); if (ok(x, z, 4)) out.push({ k: 'car', x, z, rot: H(23) * 6.28, col: ['#1d1d22', '#5a1f1f', '#20402f', '#3a3f66'][Math.floor(H(24) * 4)] }); }
   if (far && H(30) < 0.05) { const [x, z] = J(31); if (ok(x, z, 8)) out.push({ k: 'tower', x, z }); }
   if (far && H(40) < 0.07) { const [x, z] = J(41); if (ok(x, z, 8)) out.push({ k: 'furn', x, z, rot: H(43) * 6.28 }); }
-  for (let q = 0; q < Math.floor(H(50) * 3); q++) { const [x, z] = J(51 + q * 3); if (ok(x, z, 5)) out.push({ k: 'tree', x, z, s: 0.8 + H(52 + q * 3) * 0.6 }); }
+  const clear = (x, z) => { for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (const q of (a || b ? houseLots94(cx + a, cz + b) : out)) if (q.k === 'house' && Math.hypot(q.x - x, q.z - z) < 7) return false; return true; };
+  for (let q = 0; q < Math.floor(H(50) * 3); q++) { const [x, z] = J(51 + q * 3); if (ok(x, z, 5) && clear(x, z)) out.push({ k: 'tree', x, z, s: 0.8 + H(52 + q * 3) * 0.6 }); }   // never growing through a house
   for (const o of out) o.y = h94(o.x, o.z);
   obj94Cache.set(key, out); return out;
 }
 // ---- builders ----
 function addHouse94(B, o) {
-  const { w, d, hw, rh } = o, M = B.mat(o.x, o.y, o.z, o.tilt, o.rot, o.tilt * 0.7), base = -1.6, box = G94.box;
-  B.add(box, o.col, B.mat(0, (hw + base) / 2, 0, 0, 0, 0, w, hw - base, d, M));
+  const { w, d, hw, rh } = o, M = B.mat(o.x, o.y, o.z, o.tilt, o.rot, o.tilt * 0.7), base = -1.6, box = G94.box, trim = '#fbfaf5';
+  B.siding(box, o.col, B.mat(0, (hw + base) / 2, 0, 0, 0, 0, w, hw - base, d, M));
+  B.add(box, '#a49c8f', B.mat(0, (0.45 + base) / 2, 0, 0, 0, 0, w + 0.12, 0.45 - base, d + 0.12, M));          // stone foundation band
   const tri = new THREE.Shape([new THREE.Vector2(-w / 2, 0), new THREE.Vector2(w / 2, 0), new THREE.Vector2(0, rh)]), gab = new THREE.ExtrudeGeometry(tri, { depth: d, bevelEnabled: false }); gab.translate(0, 0, -d / 2);
-  B.add(gab, o.col, B.mat(0, hw, 0, 0, 0, 0, 1, 1, 1, M)); gab.dispose();
-  const ex = w / 2 + 0.35, Lr = Math.hypot(ex, rh + 0.25), ang = Math.atan2(rh + 0.25, ex), roof = '#8d3b2a';
-  B.add(box, roof, B.mat(-ex / 2, hw + (rh - 0.15) / 2, 0, 0, 0, ang, Lr, 0.16, d + 0.5, M));
-  B.add(box, roof, B.mat(ex / 2, hw + (rh - 0.15) / 2, 0, 0, 0, -ang, Lr, 0.16, d + 0.5, M));
-  if (rh > 2.5) B.add(box, '#8a4a3a', B.mat(w * 0.22, hw + rh * 0.62, -d * 0.2, 0, 0, 0, 0.5, 1.5, 0.5, M));
-  const win = (x, y, z, ry) => { B.win(box, B.mat(x, y, z, 0, ry, 0, 0.8, 1.0, 0.06, M));            // black panes, white cross bars + frame
-    B.add(box, '#fbfaf4', B.mat(x, y, z, 0, ry, 0, 0.06, 1.04, 0.08, M)); B.add(box, '#fbfaf4', B.mat(x, y, z, 0, ry, 0, 0.84, 0.06, 0.08, M)); };
-  const floors = hw > 4 ? [1.5, 3.7] : [1.6];
-  for (const fy of floors) {
-    for (const sx of [-1, 1]) { win(sx * w * 0.27, fy, d / 2 + 0.02, 0); win(sx * w * 0.27, fy, -d / 2 - 0.02, 0); }
-    win(w / 2 + 0.02, fy, 0, Math.PI / 2); win(-w / 2 - 0.02, fy, 0, Math.PI / 2);
+  B.siding(gab, o.col, B.mat(0, hw, 0, 0, 0, 0, 1, 1, 1, M)); gab.dispose();
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) B.add(box, trim, B.mat(sx * (w / 2 + 0.01), (hw + 0.45) / 2, sz * (d / 2 + 0.01), 0, 0, 0, 0.16, hw - 0.45, 0.16, M));   // corner boards
+  B.add(box, trim, B.mat(0, hw - 0.06, d / 2 + 0.03, 0, 0, 0, w + 0.1, 0.14, 0.05, M)); B.add(box, trim, B.mat(0, hw - 0.06, -d / 2 - 0.03, 0, 0, 0, w + 0.1, 0.14, 0.05, M));
+  const ex = w / 2 + 0.35, Lr = Math.hypot(ex, rh + 0.25), ang = Math.atan2(rh + 0.25, ex), roofC = o.roof || '#8d3b2a';
+  for (const sgn of [-1, 1]) {
+    B.roof(box, roofC, B.mat(sgn * ex / 2, hw + (rh - 0.15) / 2, 0, 0, 0, -sgn * ang, Lr, 0.16, d + 0.5, M), Lr * 2.2, (d + 0.5) * 2.2);
+    B.add(box, trim, B.mat(sgn * ex / 2, hw + (rh - 0.15) / 2 - 0.02, d / 2 + 0.27, 0, 0, -sgn * ang, Lr, 0.2, 0.05, M));          // bargeboards
+    B.add(box, trim, B.mat(sgn * ex / 2, hw + (rh - 0.15) / 2 - 0.02, -d / 2 - 0.27, 0, 0, -sgn * ang, Lr, 0.2, 0.05, M));
   }
-  B.add(box, o.portal ? '#b3231f' : '#6b4a33', B.mat(0, 0.95, d / 2 + 0.03, 0, 0, 0, 0.9, 1.9, 0.08, M));   // door (red ones lead elsewhere)
-  B.add(box, '#cfc6b0', B.mat(0, 0.06, d / 2 + 0.55, 0, 0, 0, 1.4, 0.12, 1.0, M));                         // step
+  if (rh > 2.5) { B.add(box, '#8a4a3a', B.mat(w * 0.22, hw + rh * 0.62, -d * 0.2, 0, 0, 0, 0.5, 1.5, 0.5, M)); B.add(box, '#6b3a2c', B.mat(w * 0.22, hw + rh * 0.62 + 0.78, -d * 0.2, 0, 0, 0, 0.6, 0.08, 0.6, M)); }
+  const shut = ['#2f4a3a', '#2b3d5c', '#5a2a2a', null][Math.floor(hash(Math.floor(o.x), Math.floor(o.z), 950) * 4)];
+  const win = (x, y, z, ry, front) => {
+    B.win(box, B.mat(x, y, z, 0, ry, 0, 0.8, 1.0, 0.06, M));                                                    // black panes
+    B.add(box, trim, B.mat(x, y, z, 0, ry, 0, 0.06, 1.04, 0.08, M)); B.add(box, trim, B.mat(x, y, z, 0, ry, 0, 0.84, 0.06, 0.08, M));   // muntins
+    B.add(box, trim, B.mat(x, y + 0.55, z, 0, ry, 0, 0.98, 0.08, 0.1, M)); B.add(box, trim, B.mat(x, y - 0.56, z, 0, ry, 0, 1.04, 0.07, 0.18, M));   // head + sill
+    for (const sx of [-1, 1]) B.add(box, trim, B.mat(x, y, z, 0, ry, 0, 0.98, 1.02, 0.07, M).multiply(_bm.makeTranslation(sx * 0.46, 0, 0)).multiply(new THREE.Matrix4().makeScale(0.07, 1, 1)));
+    if (shut && front) for (const sx of [-1, 1]) B.add(box, shut, B.mat(x + sx * 0.66, y, z + 0.02, 0, ry, 0, 0.34, 1.05, 0.05, M));   // shutters
+  };
+  const floors = hw > 4 ? [1.55, 3.75] : [1.6];
+  for (const fy of floors) {
+    for (const sx of [-1, 1]) { win(sx * w * 0.27, fy, d / 2 + 0.02, 0, true); win(sx * w * 0.27, fy, -d / 2 - 0.02, 0, false); }
+    win(w / 2 + 0.02, fy, 0, Math.PI / 2, false); win(-w / 2 - 0.02, fy, 0, Math.PI / 2, false);
+  }
+  B.add(box, o.portal ? '#b3231f' : '#6b4a33', B.mat(0, 0.98, d / 2 + 0.03, 0, 0, 0, 0.9, 1.9, 0.08, M));    // door (red ones lead elsewhere)
+  B.add(box, trim, B.mat(0, 1.98, d / 2 + 0.05, 0, 0, 0, 1.15, 0.12, 0.08, M)); for (const sx of [-1, 1]) B.add(box, trim, B.mat(sx * 0.52, 0.98, d / 2 + 0.05, 0, 0, 0, 0.12, 1.95, 0.08, M));
+  B.lamp(G94.sph, B.mat(0.32, 0.98, d / 2 + 0.09, 0, 0, 0, 0.04, 0.04, 0.04, M));                           // brass knob
+  B.add(box, '#cfc6b0', B.mat(0, 0.08, d / 2 + 0.55, 0, 0, 0, 1.4, 0.16, 1.0, M)); B.add(box, '#c4baa2', B.mat(0, 0.22, d / 2 + 0.3, 0, 0, 0, 1.2, 0.14, 0.5, M));   // steps
   if (o.fence) {                                                                                             // white picket fence with a gate gap
-    for (let x = -w / 2 - 1; x <= w / 2 + 1.01; x += 0.36) if (Math.abs(x) > 0.75) { B.add(box, '#ffffff', B.mat(x, 0.42, d / 2 + 2.2, 0, 0, 0, 0.09, 0.84, 0.04, M)); B.add(box, '#ffffff', B.mat(x, 0.86, d / 2 + 2.2, 0, 0, Math.PI / 4, 0.064, 0.064, 0.04, M)); }   // pointed pickets
+    for (let x = -w / 2 - 1; x <= w / 2 + 1.01; x += 0.36) if (Math.abs(x) > 0.75) { B.add(box, '#ffffff', B.mat(x, 0.42, d / 2 + 2.2, 0, 0, 0, 0.09, 0.84, 0.04, M)); B.add(box, '#ffffff', B.mat(x, 0.86, d / 2 + 2.2, 0, 0, Math.PI / 4, 0.064, 0.064, 0.04, M)); }
     for (const sx of [-1, 1]) for (const ry of [0.28, 0.68]) B.add(box, '#f7f6ef', B.mat(sx * (w / 4 + 0.88), ry, d / 2 + 2.18, 0, 0, 0, w / 2 + 0.25, 0.06, 0.03, M));
   }
 }
@@ -1824,7 +1888,10 @@ function addProp94(B, o, group) {
   else if (o.k === 'car') addCar94(B, o, false);
   else if (o.k === 'van') { addCar94(B, o, true); for (const s of [-1, 1]) { const m = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.65), vanMat), lx = s * 1.02, lz = -0.5;   // "ALMOND MILK" on both sides
       m.position.set(o.x + lx * Math.cos(o.rot) + lz * Math.sin(o.rot), o.y + 1.6, o.z - lx * Math.sin(o.rot) + lz * Math.cos(o.rot)); m.rotation.y = o.rot + s * Math.PI / 2; group.add(m); } }
-  else if (o.k === 'tree') { const s = o.s; B.add(cyl, '#6b4a2e', B.mat(o.x, o.y + 1.4 * s, o.z, 0, 0, 0, 0.25 * s, 2.8 * s, 0.25 * s)); B.add(G94.sph, '#3d7d2c', B.mat(o.x, o.y + 3.9 * s, o.z, 0, 0, 0, 2.2 * s, 1.9 * s, 2.2 * s)); B.add(G94.sph, '#4a8c33', B.mat(o.x + 0.9 * s, o.y + 4.5 * s, o.z + 0.4 * s, 0, 0, 0, 1.3 * s, 1.2 * s, 1.3 * s)); }
+  else if (o.k === 'tree') { const s = o.s, hk = k => hash(Math.floor(o.x * 3), Math.floor(o.z * 3), k);
+    B.add(cyl, '#5e4430', B.mat(o.x, o.y + 1.4 * s, o.z, 0, 0, 0, 0.24 * s, 2.8 * s, 0.24 * s)); B.add(cyl, '#5e4430', B.mat(o.x + 0.4 * s, o.y + 2.7 * s, o.z, 0, 0, -0.6, 0.1 * s, 1.4 * s, 0.1 * s));
+    for (let q = 0; q < 7; q++) { const a = q * 0.9 + hk(q) * 2, r = q ? (0.9 + hk(q + 9) * 0.8) * s : 0, y = (3.8 + (q ? (hk(q + 19) - 0.3) * 1.6 : 0.3)) * s, R = (q ? 1.1 + hk(q + 29) * 0.6 : 1.9) * s;
+      B.leaf(G94.sph, y < 3.6 * s ? '#4f7f3a' : '#6aa04a', B.mat(o.x + Math.cos(a) * r, o.y + y, o.z + Math.sin(a) * r, 0, a, 0, R, R * 0.85, R)); } }
   else if (o.k === 'tower') {                                                             // water tower (Almond Water)
     for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) B.add(box, '#e9e7df', B.mat(o.x + sx * 1.7, o.y + 4.5, o.z + sz * 1.7, sz * 0.07, 0, -sx * 0.07, 0.22, 9.2, 0.22));
     for (const y of [3, 6]) { B.add(box, '#d9d6cc', B.mat(o.x, o.y + y, o.z + 1.6, 0, 0, 0, 3.2, 0.1, 0.1)); B.add(box, '#d9d6cc', B.mat(o.x, o.y + y, o.z - 1.6, 0, 0, 0, 3.2, 0.1, 0.1)); B.add(box, '#d9d6cc', B.mat(o.x + 1.6, o.y + y, o.z, 0, 0, 0, 0.1, 0.1, 3.2)); B.add(box, '#d9d6cc', B.mat(o.x - 1.6, o.y + y, o.z, 0, 0, 0, 0.1, 0.1, 3.2)); }
@@ -1853,24 +1920,32 @@ function addProp94(B, o, group) {
     B.add(box, '#7a5a2a', B.mat(0.2, 1.6, -0.7, 0, 0, 0, 0.9, 0.7, 0.04, M)); B.add(box, '#a7c3d4', B.mat(0.2, 1.6, -0.68, 0, 0, 0, 0.75, 0.55, 0.03, M));     // framed picture
   }
 }
+function grassShade(x, z) {   // patches of lusher and drier grass across the hills
+  const n = 0.5 + 0.25 * Math.sin(x / 19 + Math.sin(z / 27)) + 0.25 * Math.sin(z / 23 + Math.cos(x / 31) * 2), dry = THREE.MathUtils.smoothstep(n, 0.6, 0.95);
+  return [0.92 + dry * 0.12 - (1 - n) * 0.08, 0.95 + dry * 0.02 - (1 - n) * 0.05, 0.9 - dry * 0.25 - (1 - n) * 0.08];
+}
 function terrain94(cx, cz) {
   const S = T94.CH, N = 20, g = new THREE.PlaneGeometry(S, S, N, N); g.rotateX(-Math.PI / 2); g.translate(cx * S + S / 2, 0, cz * S + S / 2);
-  const pos = g.attributes.position, nor = g.attributes.normal, uv = g.attributes.uv, e = 0.6;
+  const pos = g.attributes.position, nor = g.attributes.normal, uv = g.attributes.uv, e = 0.6, col = [];
   for (let k = 0; k < pos.count; k++) {
     const x = pos.getX(k), z = pos.getZ(k); pos.setY(k, h94(x, z));
     const nx = -(h94(x + e, z) - h94(x - e, z)) / (2 * e), nz = -(h94(x, z + e) - h94(x, z - e)) / (2 * e), l = Math.hypot(nx, 1, nz);
     nor.setXYZ(k, nx / l, 1 / l, nz / l); uv.setXY(k, x / 8, z / 8);
+    const v = grassShade(x, z); col.push(v[0], v[1], v[2]);
   }
-  g.computeBoundingSphere(); return new THREE.Mesh(g, grassMat);
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.computeBoundingSphere(); const m = new THREE.Mesh(g, grassMat); m.userData.ground = true; return m;
 }
 function roads94Into(B, cx, cz) {
   const S = T94.CH, x0 = cx * S - 4, z0 = cz * S - 4, x1 = x0 + S + 8, z1 = z0 + S + 8, inB = (x, z) => x >= x0 && x <= x1 && z >= z0 && z <= z1, asph = '#5b5d61';
-  const P = [], N = [], C = []; _bc.set(asph);
+  const P = [], N = [], C = [], AP = [], AN = [], AU = []; _bc.set(asph);
   const quad = (a, b, c, d) => { for (const v of [a, b, c, a, c, d]) { P.push(...v); N.push(0, 1, 0); C.push(_bc.r, _bc.g, _bc.b); } };
+  const aquad = (a, b, c, d, ua, ub, va, vb) => { const uvs = [[ua, va], [ua, vb], [ub, vb], [ua, va], [ub, vb], [ub, va]]; [a, b, c, a, c, d].forEach((v, i) => { AP.push(...v); AN.push(0, 1, 0); AU.push(...uvs[i]); }); };
   if (Math.hypot(cx * S + S / 2, cz * S + S / 2) < 70) {                                // plaza + ring road around the fountain
     _bc.set('#d3cbb7'); for (let a = 0; a < 40; a++) { const a0 = a / 40 * 6.283, a1 = (a + 1) / 40 * 6.283; quad([0, 0.04, 0], [Math.cos(a1) * T94.PLAZA, 0.04, Math.sin(a1) * T94.PLAZA], [Math.cos(a0) * T94.PLAZA, 0.04, Math.sin(a0) * T94.PLAZA], [0, 0.04, 0]); }
     _bc.set(asph); const r0 = T94.RING - T94.ROADW / 2, r1 = T94.RING + T94.ROADW / 2;
-    for (let a = 0; a < 64; a++) { const a0 = a / 64 * 6.283, a1 = (a + 1) / 64 * 6.283; quad([Math.cos(a0) * r0, 0.05, Math.sin(a0) * r0], [Math.cos(a1) * r0, 0.05, Math.sin(a1) * r0], [Math.cos(a1) * r1, 0.05, Math.sin(a1) * r1], [Math.cos(a0) * r1, 0.05, Math.sin(a0) * r1]); }
+    for (let a = 0; a < 64; a++) { const a0 = a / 64 * 6.283, a1 = (a + 1) / 64 * 6.283, v0 = a0 * T94.RING / 5, v1 = a1 * T94.RING / 5;
+      aquad([Math.cos(a0) * r0, 0.05, Math.sin(a0) * r0], [Math.cos(a1) * r0, 0.05, Math.sin(a1) * r0], [Math.cos(a1) * r1, 0.05, Math.sin(a1) * r1], [Math.cos(a0) * r1, 0.05, Math.sin(a0) * r1], 0, 1, v0, v1); }
   }
   _bc.set(asph);
   for (const rd of ROADS94) {
@@ -1880,32 +1955,34 @@ function roads94Into(B, cx, cz) {
       const [dx, dz] = roadDir(rd, t), [ex, ez] = roadDir(rd, t + 2), w = T94.ROADW / 2;
       const a = [p[0] - dz * w, 0, p[1] + dx * w], b = [p[0] + dz * w, 0, p[1] - dx * w], c = [q[0] + ez * w, 0, q[1] - ex * w], d = [q[0] - ez * w, 0, q[1] + ex * w];
       for (const v of [a, b, c, d]) v[1] = h94(v[0], v[2]) + 0.12;
-      quad(a, d, c, b);
+      aquad(a, d, c, b, 0, 1, t / 5, (t + 2) / 5);
     }
   }
-  return { P, N, C };
+  return { P, N, C, AP, AN, AU };
 }
 function buildChunk94(group, cx, cz) {
   group.add(terrain94(cx, cz));
   const B = batch94(), R = roads94Into(B, cx, cz);
   for (const o of objects94(cx, cz)) addProp94(B, o, group);
   if (R.P.length) { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(R.P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(R.N, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(R.C, 3)); g.computeBoundingSphere(); const m = new THREE.Mesh(g, toonMat); m.renderOrder = 1; group.add(m); }
+  if (R.AP.length) { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(R.AP, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(R.AN, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(R.AU, 2)); g.computeBoundingSphere(); const m = new THREE.Mesh(g, roadMat94); m.renderOrder = 1; m.userData.ground = true; group.add(m); }
   B.emit(group);
 }
 // far hills beyond the streamed chunks (one coarse mesh with a hole where the detailed chunks are)
 const far94 = new THREE.Mesh(new THREE.BufferGeometry(), grassMat); far94.visible = false; far94.frustumCulled = false; scene.add(far94);
+sun.shadow.normalBias = 0.04;
 let far94Key = '';
 function updateFar94(px, pz) {
   const S = T94.CH, ccx = Math.floor(px / S), ccz = Math.floor(pz / S), key = ccx + ',' + ccz; if (key === far94Key) return; far94Key = key;
   const nx0 = (ccx - VIEW_CHUNKS) * S, nx1 = (ccx + VIEW_CHUNKS + 1) * S, nz0 = (ccz - VIEW_CHUNKS) * S, nz1 = (ccz + VIEW_CHUNKS + 1) * S, C = 10, E = 330;
   const ox = Math.round(px / C) * C, oz = Math.round(pz / C) * C, P = [], N = [], U = [];
-  const V = (x, z) => { const y = h94(x, z) - 0.05, nx = -(h94(x + 1, z) - h94(x - 1, z)) / 2, nz = -(h94(x, z + 1) - h94(x, z - 1)) / 2, l = Math.hypot(nx, 1, nz); P.push(x, y, z); N.push(nx / l, 1 / l, nz / l); U.push(x / 8, z / 8); };
+  const Cc = [], V = (x, z) => { const y = h94(x, z) - 0.05, nx = -(h94(x + 1, z) - h94(x - 1, z)) / 2, nz = -(h94(x, z + 1) - h94(x, z - 1)) / 2, l = Math.hypot(nx, 1, nz); P.push(x, y, z); N.push(nx / l, 1 / l, nz / l); U.push(x / 8, z / 8); Cc.push(...grassShade(x, z)); };
   for (let x = ox - E; x < ox + E; x += C) for (let z = oz - E; z < oz + E; z += C) {
     if (x >= nx0 && x + C <= nx1 && z >= nz0 && z + C <= nz1) continue;
     V(x, z); V(x, z + C); V(x + C, z + C); V(x, z); V(x + C, z + C); V(x + C, z);
   }
   far94.geometry.dispose(); const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(Cc, 3));
   far94.geometry = g;
 }
 // ---- sky: painted gradient dome, cartoon clouds, sun/moon, stars, and the floating castle on the transparent mountain ----
@@ -1917,7 +1994,9 @@ const sky94 = new THREE.Group(); sky94.visible = false; scene.add(sky94);
   sky94.userData.domeMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false });
   const d = new THREE.Mesh(dome, sky94.userData.domeMat); d.renderOrder = -10; sky94.add(d);
   const cloudTex = canvasTex(256, 128, (g, w, h) => { g.clearRect(0, 0, w, h);
-    for (let i = 0; i < 9; i++) { const x = 40 + Math.random() * 176, y = 52 + Math.random() * 30, r = 22 + Math.random() * 26; const gr = g.createRadialGradient(x, y - 6, 2, x, y, r); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.75, 'rgba(244,247,252,0.95)'); gr.addColorStop(1, 'rgba(225,233,245,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); } }, false);
+    for (let i = 0; i < 16; i++) { const x = 34 + Math.random() * 188, y = 50 + Math.random() * 34, r = 16 + Math.random() * 26;
+      const gr = g.createRadialGradient(x - r * 0.2, y - r * 0.45, 2, x, y, r); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.55, 'rgba(240,243,248,0.97)'); gr.addColorStop(0.85, 'rgba(196,205,220,0.85)'); gr.addColorStop(1, 'rgba(190,200,216,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); }
+    const sh = g.createLinearGradient(0, 60, 0, 112); sh.addColorStop(0, 'rgba(150,160,180,0)'); sh.addColorStop(1, 'rgba(150,160,180,0.55)'); g.globalCompositeOperation = 'source-atop'; g.fillStyle = sh; g.fillRect(0, 0, w, h); g.globalCompositeOperation = 'source-over'; }, false);   // grey undersides
   sky94.userData.cloudMat = new THREE.MeshBasicMaterial({ map: cloudTex, transparent: true, depthWrite: false, fog: false });
   const clouds = new THREE.Group(); sky94.add(clouds); sky94.userData.clouds = clouds;
   for (let i = 0; i < 16; i++) { const a = i / 16 * 6.283 + Math.random() * 0.3, r = 620, m = new THREE.Mesh(new THREE.PlaneGeometry(190 + Math.random() * 120, 80 + Math.random() * 40), sky94.userData.cloudMat);
@@ -2075,6 +2154,11 @@ function frame94(dt, time, xr, wx, wz) {
     for (const [, g] of chunks) if (g.userData.fall) g.userData.fall.scale.y = 0.96 + Math.random() * 0.08;
   }
   updateFar94(wx, wz);
+  { // the sun's shadow map follows you in 10 m steps and only re-renders when that (or the loaded chunks) changes
+    const sx = Math.round(wx / 10) * 10, sz = Math.round(wz / 10) * 10, key = sx + ',' + sz + ',' + chunkGen;
+    sun.position.set(sx + 60, 100, sz + 40); sun.target.position.set(sx, 0, sz); sun.target.updateMatrixWorld();
+    if (key !== shadowKey) { shadowKey = key; renderer.shadowMap.needsUpdate = true; }
+  }
   // the siren poles play now and then — only by day ("music from the siren poles stops completely" at night)
   if (!night && amb && performance.now() > nextTune94) { tune94(0.55 * Math.max(0.06, 1 - Math.hypot(wx, wz) / 170)); nextTune94 = performance.now() + 35000 + Math.random() * 45000; }
   if (night !== wasNight94) { wasNight94 = night; if (night) toast('NIGHT — the Animations are out'); else toast('DAY'); }
