@@ -548,7 +548,7 @@ for (let i = 0; i < 9; i++) {   // ceiling lights around the player; the nearest
 // sparse and fall off within ~15 m, so the 4 nearest are nearly always all the ones that reach you);
 // levels with no point lights (Level 7) keep none. Changing the count recompiles shaders, so it only
 // happens on level change / entering or leaving VR.
-const VR_LIGHTS = 4;
+const VR_LIGHTS = 4, DESK_LIGHTS = 6;
 let lightBudget = LIGHTS.length;
 const sun = new THREE.DirectionalLight('#ffe7c2', 0); // warm "sunlight" for the Poolrooms (off in Level 0); also the Level 7 sun
 sun.position.set(9, 13, 5); scene.add(sun); scene.add(sun.target);
@@ -559,7 +559,7 @@ sun.shadow.bias = -0.0005;
 renderer.shadowMap.autoUpdate = false;   // the sun shadow is re-rendered only when it actually changes (see frame()), not every frame
 let shadowKey = '', chunkGen = 0;
 function applyRenderBudget(vr = renderer.xr.isPresenting) {
-  lightBudget = !LV || LV.light <= 0 ? 0 : Math.min(vr ? VR_LIGHTS : LIGHTS.length, LV.maxLights ?? LIGHTS.length);
+  lightBudget = !LV || LV.light <= 0 ? 0 : Math.min(vr ? VR_LIGHTS : DESK_LIGHTS, LV.maxLights ?? LIGHTS.length);
   LIGHTS.forEach((l, i) => { l.visible = i < lightBudget;
     const cs = ULTRA && !vr && i < 2 && i < lightBudget && !!LV && !LV.terrain;    // desktop realism: the two nearest lights cast real shadows
     if (l.castShadow !== cs) { l.castShadow = cs; if (cs) { l.shadow.mapSize.set(512, 512); l.shadow.bias = -0.004; l.shadow.normalBias = 0.03; l.shadow.camera.near = 0.1; l.shadow.camera.far = 22; } }
@@ -579,8 +579,8 @@ const LEVELS = {
   level0: {
     name: 'LEVEL 0', ceil: ceilTex, ceilEmit: null,
     fog: new THREE.Color('#b1a978'), fogNear: 6, fogFar: 40,          // paler, grayer haze (muted like the real Level 0 photo)
-    hemiSky: '#e4e0c2', hemiGround: '#7c7452', hemi: 0.3, ambCol: '#d8cfab', amb: 0.18, // flat fill (raised to replace the removed IBL — this is free light, no fill-rate cost) while keeping the fixtures' falloff visible
-    lightCol: '#fff4dc', light: 4.2, lightDist: 13, lightDecay: 2, sun: 0, flickRate: 0.03,  // REAL fluorescent fixtures: point lights with physical inverse-square falloff
+    hemiSky: '#e4e0c2', hemiGround: '#8a8160', hemi: 0.62, ambCol: '#d8cfab', amb: 0.3, // flat fill (raised to replace the removed IBL — this is free light, no fill-rate cost) while keeping the fixtures' falloff visible
+    lightCol: '#fff4dc', light: 2.1, lightDist: 24, lightDecay: 1, sun: 0, flickRate: 0.03, maxLights: 4, lightY: 1.9,   // soft & even (no bright pools under each panel)  // REAL fluorescent fixtures: point lights with physical inverse-square falloff
     fixtureLights: true, fixtureSeed: 71, fixtureRate: 0.16, fixtureGeo: stripGeo, fixtureMat: stripMat, fixtureY: WALL_H - 0.03,  // sparse: a working fluorescent tube only every so often
     emissiveCol: '#cfc68e', emissive: 0.22, water: false, env: 0.1,   // light bouncing off the carpet/walls keeps the flat cream ceiling from going grey
   },
@@ -2892,8 +2892,26 @@ function waterPhysics(dt, time, xr, ground, wl) {
 // ---------- main loop ----------
 const tmp = new THREE.Vector3(), head = new THREE.Vector3(), _frustum = new THREE.Frustum(), _pv = new THREE.Matrix4();
 let last = performance.now(), hudT = 0;
+const RES = { max: Math.min(window.devicePixelRatio || 1, 1.25), min: 0.55, cur: Math.min(window.devicePixelRatio || 1, 1.25), ema: 1 / 60, t: 0, fixed: params.has('res') };
+if (RES.fixed) { RES.cur = RES.max = THREE.MathUtils.clamp(parseFloat(params.get('res')) || 1, 0.4, 2); renderer.setPixelRatio(RES.cur); }
+function stableSlots(found, n, dt) {   // a fixture keeps its light while it stays among the nearest; a newly lit one fades in (no popping pools of light)
+  const byKey = new Map(found.slice(0, n).map(f => [f[1] + ',' + f[2], f])), slot = new Array(n), free = [];
+  for (let q = 0; q < n; q++) { const k = LIGHTS[q].userData.key; if (k && byKey.has(k)) { slot[q] = byKey.get(k); byKey.delete(k); } else free.push(q); }
+  for (const [k, f] of byKey) { const q = free.shift(); slot[q] = f; LIGHTS[q].userData.key = k; LIGHTS[q].userData.fade = 0; }
+  for (let q = 0; q < n; q++) LIGHTS[q].userData.fade = Math.min(1, (LIGHTS[q].userData.fade ?? 1) + dt * 1.6);
+  return slot;
+}
+function adaptRes(raw) {          // desktop only (VR has its own framebuffer scale); ?res=N pins it
+  if (renderer.xr.isPresenting || RES.fixed || raw <= 0 || raw > 0.25) return;
+  RES.ema += (raw - RES.ema) * 0.05; RES.t += raw; if (RES.t < 1.5) return; RES.t = 0;
+  let n = RES.cur;
+  if (RES.ema > 1 / 48) n = Math.max(RES.min, RES.cur * 0.85);          // under ~48 fps: render fewer pixels
+  else if (RES.ema < 1 / 58 && RES.cur < RES.max) n = Math.min(RES.max, RES.cur * 1.08);   // smooth again: creep back up
+  if (Math.abs(n - RES.cur) > 0.01) { RES.cur = n; renderer.setPixelRatio(n); resize(); }
+}
 function frame(now) {
-  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now;
+  const rawDt = (now - last) / 1000; adaptRes(rawDt);
+  const dt = Math.max(0, Math.min(0.05, rawDt)); last = now;
   const time = now / 1000;
   const xr = renderer.xr.isPresenting;   // true while a VR headset session is active
 
@@ -3006,16 +3024,16 @@ function frame(now) {
       found.push([(lx - player.pos.x) ** 2 + (lz - player.pos.z) ** 2, lx, lz, i, j]);
     }
     found.sort((a, b) => a[0] - b[0]);
-    const n = Math.min(found.length, lightBudget);
+    const n = Math.min(found.length, lightBudget), slot = stableSlots(found, n, dt);
     for (; li < n; li++) {
-      const fx = found[li], l = LIGHTS[li];
+      const fx = slot[li], l = LIGHTS[li];
       const k2 = currentLevel === 'level2' ? fix2(fx[3], fx[4]) : null;
       const win = fx[5] === 'win';
       l.position.set(fx[1], win ? 1.6 : k2 ? C2 - 0.25 : (LV.lightY ?? WALL_H - 0.14), fx[2]);
       l.distance = win ? 14 : LV.lightDist; l.decay = LV.lightDecay; l.color.set(win ? '#e9eff6' : k2 ? FIX2[k2] : LV.lightCol);
       let f = k2 === 'v' ? 0.3 : win ? 2.4 : 1;
       if (hash(fx[3], fx[4], 21) < (LV.flickRate || 0.1)) { const nn = Math.sin(time * 22 + fx[3] * 4.1) + Math.sin(time * 9.3 + fx[4] * 2.7); if (nn > 1.55 || Math.random() < 0.02) f = 0.2; }
-      l.intensity = LV.light * globalLight * f;
+      l.intensity = LV.light * globalLight * f * l.userData.fade;
     }
   } else if (LV.poolLights) {
     // teal light rising off the water: pin point lights just above the nearest pools so the columns,
@@ -3028,7 +3046,8 @@ function frame(now) {
     found.sort((a, b) => a[0] - b[0]);
     const n = Math.min(found.length, lightBudget);
     for (; li < n; li++) {
-      const fx = found[li], l = LIGHTS[li];
+      const fx = found[li], l = LIGHTS[li], key = fx[1] + ',' + fx[2];
+      if (l.userData.key !== key) { l.userData.key = key; l.userData.fade = 0; } l.userData.fade = Math.min(1, (l.userData.fade ?? 1) + dt * 1.6);
       l.position.set(fx[1], POOL_WATER + 0.5, fx[2]);
       l.distance = LV.lightDist; l.decay = LV.lightDecay; l.color.set(LV.lightCol);
       l.intensity = LV.light * globalLight;
