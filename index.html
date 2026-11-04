@@ -136,35 +136,34 @@ function speckle(g, w, h, n, alpha, light) {
     g.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 2, 1 + Math.random() * 2);
   }
 }
-const wallTex = canvasTex(512, 768, (g, w, h) => {
-  g.fillStyle = '#cdc07a'; g.fillRect(0, 0, w, h);   // muted dirty yellow (the real Level 0 photo — yellowish, not neon, not washed-white)
-  // vertical stripes
-  for (let x = 0; x < w; x += 32) { g.fillStyle = 'rgba(120,114,64,.09)'; g.fillRect(x, 0, 12, h); }
-  // little chevron/diamond motif
-  g.strokeStyle = 'rgba(118,110,62,.20)'; g.lineWidth = 3;
-  for (let y = 0; y < h; y += 48) for (let x = 16; x < w; x += 64) {
-    const o = (y / 48) % 2 ? 32 : 0;
-    g.beginPath(); g.moveTo(x + o - 7, y + 8); g.lineTo(x + o, y); g.lineTo(x + o + 7, y + 8); g.stroke();
+// Level 0 wallpaper, from the original photo (Backrooms wiki, Level 0): vertical columns of grey-green
+// chevrons on cream (the right-hand wall), and a cream paper with a fine dot pattern (the left-hand wall).
+// One texture repeat = 2.5 m x 3 m of wall (addBox UVs).
+const wpBase = (g, w, h) => {
+  speckle(g, w, h, 16000, .035, false); speckle(g, w, h, 6000, .03, true);
+  for (let i = 0; i < 10; i++) { const x = Math.random() * w, y = h * (.8 + Math.random() * .2), r = 30 + Math.random() * 80, gr = g.createRadialGradient(x, y, 0, x, y, r);   // faint damp near the floor only
+    gr.addColorStop(0, 'rgba(110,95,45,.10)'); gr.addColorStop(1, 'rgba(110,95,45,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
+  const grime = g.createLinearGradient(0, h * .86, 0, h); grime.addColorStop(0, 'rgba(80,66,30,0)'); grime.addColorStop(1, 'rgba(80,66,30,.18)'); g.fillStyle = grime; g.fillRect(0, 0, w, h);
+};
+const wallTex = canvasTex(1024, 1228, (g, w, h) => {          // chevron columns: ~12.5 cm wide, chevrons every ~6 cm
+  g.fillStyle = '#e0d9a4'; g.fillRect(0, 0, w, h);
+  const cw = w / 20, ch = 25;
+  for (let c = 0; c < 20; c++) { const x = c * cw;
+    g.fillStyle = 'rgba(150,156,128,.16)'; g.fillRect(x + cw * 0.18, 0, cw * 0.64, h);                       // the pale-green band each column of chevrons sits in
+    g.strokeStyle = 'rgba(122,130,104,.62)'; g.lineWidth = 3.2;
+    for (let y = (c % 2) * ch / 2 - ch; y < h + ch; y += ch) { g.beginPath(); g.moveTo(x + cw * 0.2, y + ch * 0.55); g.lineTo(x + cw / 2, y); g.lineTo(x + cw * 0.8, y + ch * 0.55); g.stroke(); }
+    g.strokeStyle = 'rgba(130,136,112,.30)'; g.lineWidth = 1.4; for (const e of [0.12, 0.88]) { g.beginPath(); g.moveTo(x + cw * e, 0); g.lineTo(x + cw * e, h); g.stroke(); }
   }
-  speckle(g, w, h, 9000, .06, false); speckle(g, w, h, 4000, .05, true);
-  // water stains / grime toward bottom
-  for (let i = 0; i < 26; i++) {
-    const x = Math.random() * w, y = h * (.55 + Math.random() * .4), r = 20 + Math.random() * 90;
-    const gr = g.createRadialGradient(x, y, 0, x, y, r);
-    gr.addColorStop(0, 'rgba(95,75,25,.20)'); gr.addColorStop(1, 'rgba(95,75,25,0)');
-    g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
-  }
-  const grime = g.createLinearGradient(0, h * .75, 0, h);
-  grime.addColorStop(0, 'rgba(70,55,20,0)'); grime.addColorStop(1, 'rgba(70,55,20,.35)');
-  g.fillStyle = grime; g.fillRect(0, 0, w, h);
-  // baseboard (texture v=0 is the bottom of the wall -> bottom of canvas)
-  g.fillStyle = '#9a9062'; g.fillRect(0, h - 26, w, 26);
-  g.fillStyle = 'rgba(255,248,210,.2)'; g.fillRect(0, h - 26, w, 3);
-  // ceiling shadow line
-  g.fillStyle = 'rgba(60,45,10,.25)'; g.fillRect(0, 0, w, 6);
+  wpBase(g, w, h);
+});
+const wallDotTex = canvasTex(1024, 1228, (g, w, h) => {       // fine dot paper
+  g.fillStyle = '#dedba6'; g.fillRect(0, 0, w, h);
+  g.fillStyle = 'rgba(132,136,104,.55)'; const d = 17;
+  for (let y = 0; y < h; y += d) for (let x = ((y / d) % 2) * d / 2; x < w; x += d) { g.beginPath(); g.arc(x, y, 1.7, 0, 7); g.fill(); }
+  wpBase(g, w, h);
 });
 const carpetTex = canvasTex(512, 512, (g, w, h) => {
-  g.fillStyle = '#a89b73'; g.fillRect(0, 0, w, h);   // muted tan-beige carpet (not yellow), like the reference photo
+  g.fillStyle = '#a48c66'; g.fillRect(0, 0, w, h);   // muted tan-beige carpet (not yellow), like the reference photo
   for (let i = 0; i < 90000; i++) {
     const s = Math.random();
     g.fillStyle = s < .5 ? `rgba(80,72,52,${Math.random() * .22})` : `rgba(205,196,168,${Math.random() * .18})`;
@@ -341,7 +340,7 @@ const pipeGeo = new THREE.CylinderGeometry(1, 1, 1, 9);
 const bulbMat = new THREE.MeshBasicMaterial({ color: '#ffdf9c', fog: true }); // self-lit fixture — always reads as "on", even far down the hall
 const bulbGeo = new THREE.BoxGeometry(0.9, 0.07, 0.32);
 const stripMat = new THREE.MeshBasicMaterial({ color: '#fff3d4', fog: true }); // self-lit fluorescent tube for Level 0's (now sparse) ceiling fixtures
-const stripGeo = new THREE.BoxGeometry(2.4, 0.06, 0.46);
+const stripGeo = (() => { const a = new THREE.BoxGeometry(1.22, 0.03, 0.3); const b = a.clone(); a.translate(0, 0, -1.25); b.translate(0, 0, 1.25); return mergeGeometries([a, b]); })();   // two flush 1.2 x 0.3 m panels per cell -> rows every 2.5 m
 // ---------- Level 7 (Thalassophobia) — built from the Backrooms wiki (wikidot "Level 7") ----------
 // "An impossibly large ocean that seems to stretch infinitely in all directions": a high concrete ceiling
 // over the water, no fixed light sources (only a dim natural light), rare islands of an unknown rock,
@@ -522,6 +521,7 @@ const ambient = new THREE.AmbientLight('#f5e3a0', 0.35);
 scene.add(ambient);
 
 const wallMat = new LMat({ map: wallTex });
+const wallDotMat = new LMat({ map: wallDotTex });
 const floorMat = new LMat({ map: carpetTex });
 const ceilMat = new LMat({ map: ceilTex, emissiveMap: ceilEmit, emissive: new THREE.Color('#fff6d8'), emissiveIntensity: 1.4 });
 
@@ -577,12 +577,12 @@ function applyRenderBudget(vr = renderer.xr.isPresenting) {
 // grid in the corner of every ceiling-panel square.
 const LEVELS = {
   level0: {
-    name: 'LEVEL 0', ceil: ceilTex, ceilEmit: ceilEmit,
+    name: 'LEVEL 0', ceil: ceilTex, ceilEmit: null,
     fog: new THREE.Color('#b1a978'), fogNear: 6, fogFar: 40,          // paler, grayer haze (muted like the real Level 0 photo)
     hemiSky: '#e4e0c2', hemiGround: '#7c7452', hemi: 0.3, ambCol: '#d8cfab', amb: 0.18, // flat fill (raised to replace the removed IBL — this is free light, no fill-rate cost) while keeping the fixtures' falloff visible
-    lightCol: '#fff2d2', light: 7.5, lightDist: 16, lightDecay: 2, sun: 0, flickRate: 0.03,  // REAL fluorescent fixtures: point lights with physical inverse-square falloff
+    lightCol: '#fff4dc', light: 4.2, lightDist: 13, lightDecay: 2, sun: 0, flickRate: 0.03,  // REAL fluorescent fixtures: point lights with physical inverse-square falloff
     fixtureLights: true, fixtureSeed: 71, fixtureRate: 0.16, fixtureGeo: stripGeo, fixtureMat: stripMat, fixtureY: WALL_H - 0.03,  // sparse: a working fluorescent tube only every so often
-    emissiveCol: '#fff6d8', emissive: 0, water: false, env: 0.1,
+    emissiveCol: '#cfc68e', emissive: 0.22, water: false, env: 0.1,   // light bouncing off the carpet/walls keeps the flat cream ceiling from going grey
   },
   pool: {
     name: 'POOLROOMS', ceil: poolCeilTex, ceilEmit: null,                 // Level 37 "Sublimity" (Backrooms wiki)
@@ -619,9 +619,9 @@ let LV, currentLevel;
 function realSurfaces(name) {
   for (const m of [floorMat, wallMat, ceilMat]) { m.normalMap = null; m.roughnessMap = null; m.color.set('#ffffff'); m.roughness = 1; m.metalness = 0; m.needsUpdate = true; }
   if (name === 'level0') {                                                    // damp mono-yellow carpet, papered walls, drop-ceiling tiles
-    photo(floorMat, 'Carpet016', 160, 160, { color: '#e8d394' });
-    photo(wallMat, 'Wallpaper001A', 2, 2, { keepMap: true, ns: 0.6 });
-    photo(ceilMat, 'OfficeCeiling001', 192, 192, { color: '#e2dbb4' });
+    photo(floorMat, 'Carpet016', 160, 160, { color: '#d6c4a0' });   // tan Berber: "closer to a brownish beige" (wiki)
+    photo(wallMat, 'Wallpaper001A', 2, 2, { keepMap: true, ns: 0.6 }); photo(wallDotMat, 'Wallpaper001A', 2, 2, { keepMap: true, ns: 0.5 });
+    photo(ceilMat, 'PaintedPlaster017', 160, 160, { keepMap: true, ns: 0.08 });   // flat painted cream ceiling, as in the photo (no tile grid)
   } else if (name === 'level2') {                                             // bare, stained concrete
     photo(floorMat, 'Concrete046', 110, 110, { color: '#77705f' });
     photo(wallMat, 'Concrete046', 1, 1, { color: '#b3ab98' });
@@ -637,6 +637,7 @@ function setLevel(name) {
   // Level 0 draws walls/floor/ceiling with the shared mats + global planes; Poolrooms builds its
   // own tiled geometry per chunk, so here we only need its ceiling + lighting + fog.
   if (name === 'level4') { floorMat.map = officeCarpetTex; floorMat.normalMap = null; floorMat.needsUpdate = true; officeCarpetTex.repeat.set(PLANE / CELL, PLANE / CELL); }
+  if (typeof decalMat4 !== 'undefined') decalMat4.color.setScalar(1);
   if (name === 'level0') { wallMat.map = wallTex; wallMat.needsUpdate = true; floorMat.map = carpetTex; floorMat.normalMap = null; floorMat.roughness = 1; floorMat.needsUpdate = true; carpetTex.repeat.set(PLANE / CELL, PLANE / CELL); }
   if (name === 'level2') { wallMat.map = concWallTex; wallMat.needsUpdate = true; floorMat.map = concFloorTex; floorMat.normalMap = null; floorMat.roughness = 0.92; floorMat.needsUpdate = true; concFloorTex.repeat.set(PLANE / CELL, PLANE / CELL); }
   ceilMat.map = L.ceil; ceilMat.emissiveMap = L.ceilEmit; ceilMat.emissive.set(L.emissiveCol); ceilMat.needsUpdate = true;
@@ -674,28 +675,30 @@ function setLevel(name) {
 const spawnOpen = (i, j) => Math.abs(i) <= 1 && Math.abs(j) <= 1; // keep spawn clear
 function zoneOf(i, j) {
   const r = hash(Math.floor(i / 5), Math.floor(j / 5), 7);
-  return r < 0.07 ? 'pillars' : r < 0.52 ? 'dense' : 'normal';
+  return r < 0.08 ? 'pillars' : r < 0.14 ? 'blackout' : r < 0.42 ? 'dense' : 'open';
 }
 function level0Boxes(i, j) {
   const b = [], near = spawnOpen(i, j), zone = zoneOf(i, j);
-  const x0 = i * CELL, z0 = j * CELL, x1 = x0 + CELL, z1 = z0 + CELL, T = 0.2;   // thicker walls
+  const x0 = i * CELL, z0 = j * CELL, x1 = x0 + CELL, z1 = z0 + CELL, T = 0.08;   // partitions ~16 cm thick (photo)
   if (near) return b;
-  if (zone === 'pillars') {
-    if ((i + j) % 2 === 0 && hash(i, j, 3) < 0.75) b.push([x1 - .45, x1 + .45, 0, WALL_H, z1 - .45, z1 + .45]);
-  } else {
-    const p = zone === 'dense' ? 0.82 : 0.66;   // denser walls -> tighter rooms/corridors
-    for (const axis of [0, 1]) {
-      if (hash(i, j, axis) >= p) continue;
-      const door = hash(i, j, axis + 10) < 0.42;
-      const seg = (a, c) => axis === 0 ? [x1 - T, x1 + T, 0, WALL_H, a, c] : [a, c, 0, WALL_H, z1 - T, z1 + T];
-      const s0 = axis === 0 ? z0 : x0, s1 = s0 + CELL;
-      if (door) { b.push(seg(s0 - T, s0 + 1.75), seg(s0 + 3.25, s1 + T)); const hdr = seg(s0 + 1.75, s0 + 3.25); hdr[2] = 2.25; b.push(hdr); }
-      else b.push(seg(s0 - T, s1 + T));
-    }
-    if (hash(i, j, 5) < 0.14) b.push([x1 - .4, x1 + .4, 0, WALL_H, z1 - .4, z1 + .4]);
+  if (zone === 'pillars') {                                                        // "huge rooms with columns in a lattice"
+    if ((i + j) % 2 === 0 && hash(i, j, 3) < 0.8) b.push([x1 - .5, x1 + .5, 0, WALL_H, z1 - .5, z1 + .5]);
+    return b;
   }
+  const open = zone === 'open', p = open ? 0.42 : 0.8;
+  for (const axis of [0, 1]) {
+    if (hash(i, j, axis) >= p) continue;
+    const seg = (a, c) => axis === 0 ? [x1 - T, x1 + T, 0, WALL_H, a, c] : [a, c, 0, WALL_H, z1 - T, z1 + T];
+    const s0 = axis === 0 ? z0 : x0, s1 = s0 + CELL, r = hash(i, j, axis + 10);
+    if (open && r < 0.45) {                                                        // a freestanding partition that just stops (the photo)
+      const k = hash(i, j, axis + 20); b.push(k < 0.33 ? seg(s0 - T, s0 + 3) : k < 0.66 ? seg(s0 + 2, s1 + T) : seg(s0 + 0.8, s0 + 4.2));
+    } else if (r < (open ? 0.75 : 0.42)) { b.push(seg(s0 - T, s0 + 1.75), seg(s0 + 3.25, s1 + T)); const hdr = seg(s0 + 1.75, s0 + 3.25); hdr[2] = 2.25; b.push(hdr); }   // doorway
+    else b.push(seg(s0 - T, s1 + T));
+  }
+  if (!open && hash(i, j, 5) < 0.12) b.push([x1 - .4, x1 + .4, 0, WALL_H, z1 - .4, z1 + .4]);
   return b;
 }
+const l0Lit = (i, j) => zoneOf(i, j) !== 'blackout' && hash(i, j, 71) < 0.9;      // a dead panel here and there; none at all in blackout zones
 // ---- Level 2 "Pipe Dreams" layout: long E-W corridors (lanes), with rare N-S connectors to the
 // neighbouring corridor and more-frequent short stubs that dead-end. Everything else is solid concrete.
 const LANE = 6;
@@ -834,6 +837,18 @@ function addWallSeg(P, N, U, ax, az, bx, bz, yb, yt) {
   let nx = bz - az, nz = -(bx - ax); const l = Math.hypot(nx, nz) || 1; nx /= l; nz /= l;
   const v = [[ax, yb, az], [bx, yb, bz], [bx, yt, bz], [ax, yb, az], [bx, yt, bz], [ax, yt, az]];
   for (const [x, y, z] of v) { P.push(x, y, z); N.push(nx, 0, nz); const hor = Math.abs(bx - ax) > Math.abs(bz - az) ? x : z; U.push(hor / 2.5, y / 2.5); }
+}
+function l0Trim(B, D, bx) {         // a wooden rail ~45 cm up and the odd beige outlet ~30 cm up (original photo); contact shadows
+  const [x0, x1, y0, y1, z0, z1] = bx; aoBox4(D, bx);
+  if (y0 > 0.01 || y1 - y0 < 2) return;
+  const alongX = x1 - x0 > z1 - z0, len = alongX ? x1 - x0 : z1 - z0, th = alongX ? z1 - z0 : x1 - x0, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+  if (len < 0.7) return;
+  for (const sd of [-1, 1]) {
+    const h = hash(Math.floor(cx * 3) + sd, Math.floor(cz * 3), 40), off = sd * (th / 2 + 0.012);
+    if (h < 0.6) B.add(G94.box, '#9c8457', alongX ? B.mat(cx, 0.45, cz + off, 0, 0, 0, len, 0.055, 0.024) : B.mat(cx + off, 0.45, cz, 0, 0, 0, 0.024, 0.055, len));
+    if (h > 0.45 && h < 0.62) { const u = (hash(Math.floor(cx * 3), Math.floor(cz * 3) + sd, 41) - 0.5) * (len - 0.4);
+      B.add(G94.box, '#e3dcc4', alongX ? B.mat(cx + u, 0.3, cz + sd * (th / 2 + 0.006), 0, 0, 0, 0.07, 0.115, 0.012) : B.mat(cx + sd * (th / 2 + 0.006), 0.3, cz + u, 0, 0, 0, 0.012, 0.115, 0.07)); }
+  }
 }
 function geoMesh(P, N, U, mat) {
   const g = new THREE.BufferGeometry();
@@ -1335,15 +1350,23 @@ function buildChunk(cx, cz, st = 0) {
   } else if (currentLevel === 'level7') {                           // open ocean: a rare island of unknown rock (Fort Surrender on the nearest)
     const isl = island7(cx, cz); if (isl) { group.add(makeIsland(isl)); if (isl.fort) group.add(makeFort(isl)); }
   } else {
-    const P = [], N = [], U = [];
-    for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++)
-      for (const box of cellBoxes(i, j)) addBox(P, N, U, box);
+    const P = [], N = [], U = [], P2 = [], N2 = [], U2 = [], L0 = currentLevel === 'level0', B = L0 ? batch94() : null, D = L0 ? dk4() : null;
+    for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) {
+      for (const box of cellBoxes(i, j)) {
+        const dots = L0 && hash(Math.floor(box[0] * 2), Math.floor(box[4] * 2), 31) < 0.35;   // two papers, as in the photo
+        if (dots) addBox(P2, N2, U2, box); else addBox(P, N, U, box);
+        if (L0) l0Trim(B, D, box);
+      }
+      if (L0 && hash(i, j, 33) < 0.14) { const sz = 0.8 + hash(i, j, 34) * 1.8; dflat4(D, i * CELL + 1 + hash(i, j, 35) * 3, 0.004, j * CELL + 1 + hash(i, j, 36) * 3, sz, sz * (0.6 + 0.6 * hash(i, j, 37)), hash(i, j, 38) * 6.28, STAIN4, [0.16, 0.12, 0.05, 0.42]); }   // damp patches in the "always wet" carpet
+    }
     if (P.length) group.add(geoMesh(P, N, U, wallMat));
+    if (P2.length) group.add(geoMesh(P2, N2, U2, wallDotMat));
+    if (L0) { B.emit(group); if (D.P.length) group.add(decalMesh4(D)); }
     if (currentLevel === 'level2') addPipes(group, i0, j0, i1, j1);
     if (LV.fixtureLights) {                                        // sparse self-lit ceiling fixtures (Level 0 strips, Pipe Dreams bulbs)
       const seed = LV.fixtureSeed ?? 70, rate = LV.fixtureRate ?? 0.11, pts = [];
       for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) {
-        if (hash(i, j, seed) >= rate) continue;
+        if (currentLevel === 'level0' ? !l0Lit(i, j) : hash(i, j, seed) >= rate) continue;
         if (currentLevel === 'level2' && !isOpen2(i, j)) continue; // Pipe Dreams: only along the corridors
         pts.push([i * CELL + CELL / 2, j * CELL + CELL / 2]);
       }
@@ -1543,6 +1566,7 @@ addEventListener('resize', resize); resize();
 
 // ---------- audio (local only) ----------
 let audio = null;
+let hum0T = 0;
 function toggleHum() {
   if (!audio) {
     const ctx = getCtx(), gain = ctx.createGain(); gain.gain.value = 0;
@@ -2840,7 +2864,7 @@ function frame(now) {
     const R = 7, found = [], seed = LV.fixtureSeed ?? 70, rate = LV.fixtureRate ?? 0.11;
     for (let di = -R; di <= R; di++) for (let dj = -R; dj <= R; dj++) {
       const i = ci + di, j = cj + dj;
-      if (hash(i, j, seed) >= rate) continue;
+      if (currentLevel === 'level0' ? !l0Lit(i, j) : hash(i, j, seed) >= rate) continue;
       if (currentLevel === 'level2' && !isOpen2(i, j)) continue;
       const lx = i * CELL + CELL / 2, lz = j * CELL + CELL / 2;
       found.push([(lx - player.pos.x) ** 2 + (lz - player.pos.z) ** 2, lx, lz, i, j]);
@@ -2902,6 +2926,10 @@ function frame(now) {
   if (LV.terrain) frame94(dt, time, xr, wx, wz);
   if (LV.office) frame4(dt, xr, globalLight);
   updateHvac4(!!LV.office);
+  if (audio && audio.on && currentLevel === 'level0') {   // wiki: the buzz "gets louder and quieter severely and randomly", sometimes painfully loud
+    hum0T -= dt; if (hum0T <= 0) { const spike = Math.random() < 0.07; hum0T = spike ? 0.8 + Math.random() : 0.7 + Math.random() * 2.6;
+      audio.gain.gain.setTargetAtTime(0.05 * (spike ? 3.4 : 0.35 + Math.random() * 1.1), audio.ctx.currentTime, spike ? 0.06 : 0.5); }
+  }
   if (LV.flood && !l7.swim && speed > 0.4 && Math.floor(player.phase / Math.PI) !== Math.floor((player.phase - speed * dt * 2.6) / Math.PI)) wadeStep(speed);
   if (currentLevel === 'pool') {
     poolWater.material.uniforms.time.value += dt * 0.25;                // slow, minimal ripple
