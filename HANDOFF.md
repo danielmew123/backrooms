@@ -1,7 +1,7 @@
 # Backrooms game — handoff notes
 
 Paste this file into a new session, or tell it: *"read ~/backrooms-cam/HANDOFF.md first"*.
-State as of **2026-11-03** (after the second Level 4 realism commit on `main`, "real photo window views + CC0 models"; see `git log`).
+State as of **2026-11-03**, after the "research every level against the wiki" pass (see `git log`).
 
 ---
 
@@ -144,6 +144,67 @@ Each level is built to match its page on the Backrooms Wikidot wiki (and its pho
    - Real sun shadows, re-rendered only when you move 10 m.
 
 The **entity** (E key) works on every level: it stares, creeps toward you, and glitches the screen when it reaches you.
+
+---
+
+## Canon research (2026-11-03): what the wiki actually says, and what's built
+
+Every level was checked against its Backrooms **Wikidot** page and the page's own images. Rule from the user: don't invent details; look them up.
+
+- **Level 0 "Threshold"** (wiki + the original 2002 Oshkosh furniture-store photo):
+  - Built:
+    - Open-plan rooms cut up by freestanding ~16 cm partitions, with maze pockets (`zoneOf`: open / dense / pillars / blackout).
+    - Two wallpapers from the photo: grey-green chevron columns (`wallTex`) and cream dots (`wallDotTex`).
+    - Wooden rail at 45 cm and beige outlets at 30 cm (`l0Trim`).
+    - Rows of flush 1.2×0.3 m fluorescent panels every 2.5 m (`stripGeo`, `l0Lit`), with a few dead ones and none in blackout zones.
+    - Flat cream ceiling, tan Berber carpet ("closer to a brownish beige") with damp patches.
+    - Hum that surges at random (M key).
+  - Not built:
+    - The flickering-wall exit to Level 1.
+    - Lethal hole grids, Red Rooms, the Manila Room, arch rooms, Peripheral Shift.
+- **Level 2** is now titled **"Abandoned Utility Halls"** on the wiki.
+  - Built:
+    - Tight tunnels (`HW2` 0.85, a 2.5 m ceiling via `LV.ceilY`).
+    - A floor-to-ceiling pipe bank on one wall (`bank2`, `build2`).
+    - Series-circuit lighting in white or orange, with dead circuits and violet emergency lights (`fix2`, `circ2`).
+    - White/grey/cream steel doors, mostly locked, with canon warning-sign types (`door2`).
+    - Plate-marked unlocked doors go to Level 4, which is canon: Level 4 lists "an unlocked door on Level 2" as an entrance (`exit2`).
+    - Junk in dead ends and machine whir.
+  - Collision-only boxes carry a 7th element `'c'` and aren't drawn.
+  - Not built: 45° turns (canon says turns are strictly 45°), and doors to Levels 1/3 and the other listed levels.
+- **Level 4:** the wiki photo shows an empty, dim open plan.
+  - Built:
+    - Most troffers off (`l4Lit` 30%).
+    - The clear windows are light sources; window daylight sits 1.2 m into the room on your side.
+    - Small near-square windows (3×3 crack-free wall pieces), glass blown out white.
+    - Most windows blacked out (`clearWin4` 30%).
+    - Almost no furniture, Almond Water drinking fountains, AC cassettes, dark slate carpet.
+  - Canon exits are Levels 5/6/3 (stairs, elevators) and a rare basement stair to 71. **None of those levels exist, so the old STAIRS→Level 0/2 and elevator teleports are kept and are not canon.** The window "trap" effect is not described on the wiki; the teleport is an invention.
+- **Poolrooms (Level 37):**
+  - Built: cream/olive tile and green water and haze from the wiki renders, stainless handrails on posts (`poolRails`), ring ribs in the round tunnels.
+  - Not canon: spiral stairs, a second storey, ladders in the pits.
+  - Not built:
+    - Exits: water → Level 130, dark tunnels → Level 43.
+    - The dome room with arches.
+    - Taller ceilings: the renders look >3 m, but `WALL_H` is shared.
+- **Level 7:**
+  - The entrance room already matches canon: bookcase on the left wall, coffee table, one chair, fluorescent lamp, carpet with a puddle, stairs to Level 6 opposite the door. Fort Surrender is canon.
+  - Added: a wave wash in the ambience (Level 6's page says you find Level 7 by the sound of waves).
+  - Not built:
+    - Depth zones (Twilight ~1 km, Midnight, Abyss >7 km) and their debris; you can't dive.
+    - The Thing and Tiny.
+    - Exits to Levels 8 and 9.
+- **Level 94:**
+  - The wiki art is cream dollhouse houses with red-brown roofs and mown-stripe hills (stripes are a `grassMat.onBeforeCompile` patch).
+  - Exits: "some houses" lead to Levels 7, 9 and 53. The M.E.G. log says the Level 7 house was **flooded**, so `o.portal` houses now have water spilling out instead of red doors.
+  - Removed: the invented "ALMOND MILK" lettering.
+  - Added: at night the music stops and laughter comes from all around (`laugh94`).
+  - Not built:
+    - Houses degrading into lone walls and furniture piles further out.
+    - The castle interior, Robo-Men and the Animated King.
+    - Death Rats and other night entities.
+
+The research notes, with source URLs and hex colours read off the images, were collected in the session; the main source pages are `http://backrooms-wiki.wikidot.com/level-0`, `level-2`, `level-4`, `level-7`, `level-37`, `level-94`, plus `manila-room` and `m-e-g-the-discovery-of-level-94`.
 
 ---
 
