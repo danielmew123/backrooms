@@ -335,8 +335,8 @@ const concCeilTex = canvasTex(512, 512, (g, w, h) => {
   for (let i = 0; i <= 4; i++) { const p = i * w / 4; g.beginPath(); g.moveTo(p, 0); g.lineTo(p, h); g.stroke(); g.beginPath(); g.moveTo(0, p); g.lineTo(w, p); g.stroke(); }
   for (let i = 0; i < 12; i++) { const x = Math.random() * w, y = Math.random() * h, r = 20 + Math.random() * 50, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, 'rgba(16,15,12,0.32)'); rg.addColorStop(1, 'rgba(16,15,12,0)'); g.fillStyle = rg; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
 });
-const pipeMat = new LMat({ color: '#746b5c' });
-const pipeGeo = new THREE.CylinderGeometry(1, 1, 1, 9);
+const pipeMat = new LMat({ color: '#ffffff' }), pipeMat2 = new LMat({ color: '#ffffff', side: THREE.DoubleSide });   // open-ended runs: inside visible at a cut
+const pipeGeo = new THREE.CylinderGeometry(1, 1, 1, 14, 1, true), pipeCapGeo = new THREE.CylinderGeometry(1, 1, 1, 14);   // runs are open-ended (their ends are never seen); drums/valves/elbows get caps
 const bulbMat = new THREE.MeshBasicMaterial({ color: '#ffdf9c', fog: true }); // self-lit fixture — always reads as "on", even far down the hall
 const bulbGeo = new THREE.BoxGeometry(0.9, 0.07, 0.32);
 const stripMat = new THREE.MeshBasicMaterial({ color: '#fff3d4', fog: true }); // self-lit fluorescent tube for Level 0's (now sparse) ceiling fixtures
@@ -592,11 +592,11 @@ const LEVELS = {
     emissiveCol: '#000000', emissive: 0, water: true, flood: true, env: 0.22, realEnv: 0.16, realFill: 0.45,
   },
   level2: {
-    name: 'LEVEL 2 — PIPE DREAMS', ceil: concCeilTex, ceilEmit: null,
+    name: 'LEVEL 2 — ABANDONED UTILITY HALLS', ceil: concCeilTex, ceilEmit: null,   // current wiki title (formerly "Pipe Dreams")
     fog: new THREE.Color('#17150d'), fogNear: 4, fogFar: 30,           // dark murk — long unlit stretches between the rare lights
     hemiSky: '#343022', ambCol: '#302c1e', hemiGround: '#1a170e', hemi: 0.42, amb: 0.22,  // slight bump to replace removed IBL; still a dark Pipe Dreams where the rare fixtures pool the light
-    lightCol: '#ffd9a0', light: 30, lightDist: 20, lightDecay: 2, sun: 0, fixtureLights: true, fixtureSeed: 70, fixtureRate: 0.11, fixtureGeo: bulbGeo, fixtureMat: bulbMat, fixtureY: WALL_H - 0.05,  // real point lights pinned to the rare fixtures — physical inverse-square falloff, identical near and far
-    emissiveCol: '#000000', emissive: 0, water: false, concrete: true, flickRate: 0.05, env: 0.22,
+    lightCol: '#ffd9a0', light: 16, lightDist: 16, lightDecay: 2, sun: 0, fixtureLights: true, fixtureSeed: 70, fixtureRate: 0.11, fixtureGeo: bulbGeo, fixtureMat: bulbMat, fixtureY: WALL_H - 0.05,  // real point lights pinned to the rare fixtures — physical inverse-square falloff, identical near and far
+    emissiveCol: '#000000', emissive: 0, water: false, concrete: true, flickRate: 0.05, env: 0.22, ceilY: 2.5,   // low ceiling (photos ~2.4 m)
   },
   level7: {
     name: 'LEVEL 7 — THALASSOPHOBIA', ceil: ceilTex, ceilEmit: null,
@@ -624,7 +624,7 @@ function realSurfaces(name) {
     photo(ceilMat, 'PaintedPlaster017', 160, 160, { keepMap: true, ns: 0.08 });   // flat painted cream ceiling, as in the photo (no tile grid)
   } else if (name === 'level2') {                                             // bare, stained concrete
     photo(floorMat, 'Concrete046', 110, 110, { color: '#77705f' });
-    photo(wallMat, 'Concrete046', 1, 1, { color: '#b3ab98' });
+    photo(wallMat, 'Concrete046', 1, 1, { color: '#c9c0aa' });
     photo(ceilMat, 'Concrete031', 96, 96, { color: '#7b7466' });
   } else if (name === 'level4') {                                             // worn blue-grey office carpet, plaster walls, ceiling tiles
     photo(floorMat, 'Carpet016', PLANE, PLANE, { color: '#8e9bad' });   // medium blue-grey office carpet (like the photo)
@@ -712,7 +712,22 @@ function isOpen2(i, j) {
   if (hash(i, L + LANE, 63) < 0.16 && (LANE - m) <= 1 + (hash(i, L + LANE, 64) < 0.5 ? 1 : 0)) return true; // stub down from the upper lane
   return false;
 }
-const HW2 = 1.1;                                                    // half corridor width -> ~2.2m wide passages
+const HW2 = 0.85;                                                   // 1.7 m between the walls; the pipe bank leaves ~1.25 m to walk in (wiki photos: 1-1.3 m)
+const C2 = 2.5, BANK2 = 0.44;                                       // ceiling height (photos ~2.4 m), pipe-bank depth
+function bank2(i, j) {          // which wall carries the floor-to-ceiling pipe bank ('n' = +z, 's', 'e' = +x, 'w') — wiki: pipes "often cover one or both walls"
+  const W = isOpen2(i - 1, j), E = isOpen2(i + 1, j), S = isOpen2(i, j - 1), N = isOpen2(i, j + 1);
+  if (W || E) return !N ? 'n' : !S ? 's' : null;
+  if (S || N) return !E ? 'e' : !W ? 'w' : null;
+  return null;
+}
+function door2(i, j) {          // a steel door on the wall opposite the pipes: {side, kind: 'locked' | 'exit', paint, sign}
+  if (!isOpen2(i, j) || spawnOpen(i, j) || hash(i, j, 80) > 0.13) return null;
+  const bk = bank2(i, j), W = isOpen2(i - 1, j), E = isOpen2(i + 1, j), S = isOpen2(i, j - 1), N = isOpen2(i, j + 1);
+  const side = (W || E) ? (bk === 'n' && !S ? 's' : bk === 's' && !N ? 'n' : null) : (bk === 'e' && !W ? 'w' : bk === 'w' && !E ? 'e' : null);
+  if (!side) return null;
+  return { side, kind: hash(i, j, 81) < 0.08 ? 'exit' : 'locked', paint: ['#e4e1d8', '#a6aaad', '#d6ccb0'][Math.floor(hash(i, j, 82) * 3)], sign: Math.floor(hash(i, j, 83) * 6) };   // most doors are locked (wiki)
+}
+const deadEnd2 = (i, j) => isOpen2(i, j) && !spawnOpen(i, j) && (isOpen2(i - 1, j) + isOpen2(i + 1, j) + isOpen2(i, j - 1) + isOpen2(i, j + 1)) === 1;
 function level2Boxes(i, j) {                                        // fill everything except a narrow passage down the middle of the cell
   const b = []; if (!isOpen2(i, j)) return b;
   const x0 = i * CELL, z0 = j * CELL, x1 = x0 + CELL, z1 = z0 + CELL, cx = x0 + CELL / 2, cz = z0 + CELL / 2;
@@ -722,6 +737,10 @@ function level2Boxes(i, j) {                                        // fill ever
   if (!N) b.push([x0, x1, 0, WALL_H, bz, z1]); else { b.push([x0, a, 0, WALL_H, bz, z1]); b.push([bx, x1, 0, WALL_H, bz, z1]); } // north strip
   if (!W) b.push([x0, a, 0, WALL_H, az, bz]);                       // west side of the middle band
   if (!E) b.push([bx, x1, 0, WALL_H, az, bz]);                      // east side
+  const bk = bank2(i, j), D = BANK2;                                // the pipe bank: collision only (the pipes themselves are drawn in build2)
+  if (bk === 'n') b.push([x0, x1, 0, WALL_H, bz - D, bz, 'c']); else if (bk === 's') b.push([x0, x1, 0, WALL_H, az, az + D, 'c']);
+  else if (bk === 'e') b.push([bx - D, bx, 0, WALL_H, z0, z1, 'c']); else if (bk === 'w') b.push([a, a + D, 0, WALL_H, z0, z1, 'c']);
+  if (deadEnd2(i, j)) b.push([cx - 0.7, cx + 0.7, 0, 1.1, cz - 0.7, cz + 0.7, 'c']);   // junk piled in the dead end
   return b;
 }
 // ---- Poolrooms layout ----
@@ -1353,6 +1372,7 @@ function buildChunk(cx, cz, st = 0) {
     const P = [], N = [], U = [], P2 = [], N2 = [], U2 = [], L0 = currentLevel === 'level0', B = L0 ? batch94() : null, D = L0 ? dk4() : null;
     for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) {
       for (const box of cellBoxes(i, j)) {
+        if (box[6]) continue;                                     // collision-only (Level 2 pipe banks, junk piles)
         const dots = L0 && hash(Math.floor(box[0] * 2), Math.floor(box[4] * 2), 31) < 0.35;   // two papers, as in the photo
         if (dots) addBox(P2, N2, U2, box); else addBox(P, N, U, box);
         if (L0) l0Trim(B, D, box);
@@ -1362,8 +1382,8 @@ function buildChunk(cx, cz, st = 0) {
     if (P.length) group.add(geoMesh(P, N, U, wallMat));
     if (P2.length) group.add(geoMesh(P2, N2, U2, wallDotMat));
     if (L0) { B.emit(group); if (D.P.length) group.add(decalMesh4(D)); }
-    if (currentLevel === 'level2') addPipes(group, i0, j0, i1, j1);
-    if (LV.fixtureLights) {                                        // sparse self-lit ceiling fixtures (Level 0 strips, Pipe Dreams bulbs)
+    if (currentLevel === 'level2') build2(group, i0, j0, i1, j1);
+    if (LV.fixtureLights && currentLevel !== 'level2') {                                        // sparse self-lit ceiling fixtures (Level 0 strips, Pipe Dreams bulbs)
       const seed = LV.fixtureSeed ?? 70, rate = LV.fixtureRate ?? 0.11, pts = [];
       for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) {
         if (currentLevel === 'level0' ? !l0Lit(i, j) : hash(i, j, seed) >= rate) continue;
@@ -1382,31 +1402,95 @@ function buildChunk(cx, cz, st = 0) {
   scene.add(group);
   return group;
 }
+// Level 2 lighting (wiki): buzzing fluorescents in white or orange hues, sparser than Level 0 and uneven; wiring is
+// on series circuits (one failure kills a 3x3..6x6 grid), so whole stretches are dark; dead circuits sometimes
+// show the violet emergency lights that came on after the great blackout.
+const circ2 = (i, j) => hash(Math.floor(i / 4), Math.floor(j / 4), 65);
+function fix2(i, j) {
+  if (!isOpen2(i, j) || hash(i, j, 70) >= 0.34) return null;
+  if (circ2(i, j) < 0.24) return hash(i, j, 66) < 0.35 ? 'v' : null;
+  return hash(i, j, 67) < 0.42 ? 'o' : 'w';
+}
+const FIX2 = { w: '#dfe8ff', o: '#ffb45a', v: '#8a5cff' };
 // Level 2 pipework: overhead runs across the ceiling + pipes along the walls, all in one instanced draw
 const _pm = new THREE.Matrix4(), _pq = new THREE.Quaternion(), _pp = new THREE.Vector3(), _ps = new THREE.Vector3(), _pe = new THREE.Euler();
-function addPipes(group, i0, j0, i1, j1) {
-  const M = [];
-  const push = (x, y, z, axis, len, r) => {
-    _pe.set(axis === 'z' ? Math.PI / 2 : 0, 0, axis === 'x' ? Math.PI / 2 : 0);
-    _pq.setFromEuler(_pe); _pp.set(x, y, z); _ps.set(r, len, r);
-    M.push(_pm.compose(_pp, _pq, _ps).clone());
+const fixMat2 = { w: new THREE.MeshBasicMaterial({ color: '#eef3ff', fog: true }), o: new THREE.MeshBasicMaterial({ color: '#ffc070', fog: true }), v: new THREE.MeshBasicMaterial({ color: '#9a70ff', fog: true }) };
+const tube2 = new THREE.BoxGeometry(1.22, 0.05, 0.08), lamp2 = new THREE.BoxGeometry(0.34, 0.1, 0.2), emer2 = new THREE.BoxGeometry(0.26, 0.08, 0.12);
+const signTex2 = ['DANGER|HIGH PRESSURE', 'DO NOT|ENTER', 'FLOOD|WARNING', 'DANGER|MACHINERY', 'AUTHORIZED|PERSONNEL ONLY', 'CAUTION|STEAM PIPES'].map((t, k) => canvasTex(256, 160, (g, w, h) => {   // wiki: machinery / pipe warnings, do-not-enter, flood warnings
+  const [a, b2] = t.split('|'), red = k !== 2 && k !== 5;
+  g.fillStyle = '#f2efe6'; g.fillRect(0, 0, w, h); g.fillStyle = red ? '#c4241c' : '#e8b416'; g.fillRect(0, 0, w, 62);
+  g.fillStyle = red ? '#fff' : '#111'; g.font = 'bold 40px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(a, w / 2, 33);
+  g.fillStyle = '#1a1a1a'; g.font = 'bold 30px Arial'; g.fillText(b2, w / 2, 108);
+  for (let q = 0; q < 900; q++) { g.fillStyle = `rgba(90,70,40,${Math.random() * 0.12})`; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }   // grime
+}, false));
+const signMat2 = signTex2.map(t => new THREE.MeshLambertMaterial({ map: t }));
+const plateMat2 = new THREE.MeshLambertMaterial({ map: canvasTex(128, 64, (g, w, h) => { g.fillStyle = '#9c8240'; g.fillRect(0, 0, w, h); g.strokeStyle = '#4a3a14'; g.lineWidth = 4; g.strokeRect(4, 4, w - 8, h - 8); g.fillStyle = '#3a2c0c'; g.font = 'bold 36px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('→', w / 2, h / 2 + 2); }, false) });   // an engraved plate marks the unlocked doors (wiki: exits are marked with signs or engravings)
+function build2(group, i0, j0, i1, j1) {
+  const M = [], C = [], MC = [], CC = [], BX = [], BC = [], FX = { w: [], o: [], v: [] }, B = batch94(), SG = new Map(), D = dk4();
+  const _c = new THREE.Color();
+  const pipe = (x, y, z, axis, len, r, col, cap = false) => {        // axis 'x' | 'z' | 'y'
+    _pe.set(axis === 'z' ? Math.PI / 2 : 0, 0, axis === 'x' ? Math.PI / 2 : 0); _pq.setFromEuler(_pe); _pp.set(x, y, z); _ps.set(r, len, r);
+    (cap ? MC : M).push(_pm.compose(_pp, _pq, _ps).clone()); (cap ? CC : C).push(col);
   };
+  const boxI = (x, y, z, sx, sy, sz, col) => { _pq.identity(); _pp.set(x, y, z); _ps.set(sx, sy, sz); BX.push(_pm.compose(_pp, _pq, _ps).clone()); BC.push(col); };
   for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) {
-    if (!isOpen2(i, j)) continue;                                                                       // pipes only run along the corridors
-    const x0 = i * CELL, z0 = j * CELL, cx = x0 + CELL / 2, cz = z0 + CELL / 2;
-    const W = isOpen2(i - 1, j), E = isOpen2(i + 1, j), S = isOpen2(i, j - 1), N = isOpen2(i, j + 1);
-    const ox = W || E, oz = S || N, pz = cz + HW2 - 0.07, nz = cz - HW2 + 0.07, px = cx + HW2 - 0.07, nx = cx - HW2 + 0.07;
-    if (ox) { push(cx, WALL_H - 0.2, cz - 0.5, 'x', CELL + 0.02, 0.07); push(cx, WALL_H - 0.2, cz + 0.5, 'x', CELL + 0.02, 0.055); if (hash(i, j, 42) < 0.5) push(cx, WALL_H - 0.42, cz, 'x', CELL + 0.02, 0.11); }
-    if (oz) { push(cx - 0.5, WALL_H - 0.2, cz, 'z', CELL + 0.02, 0.07); push(cx + 0.5, WALL_H - 0.2, cz, 'z', CELL + 0.02, 0.055); if (hash(i, j, 43) < 0.5) push(cx, WALL_H - 0.42, cz, 'z', CELL + 0.02, 0.11); }
-    if (ox && !N) { push(cx, 1.3, pz, 'x', CELL, 0.05); push(cx, 2.0, pz, 'x', CELL, 0.038); }           // pipes hugging the corridor walls
-    if (ox && !S) { push(cx, 1.3, nz, 'x', CELL, 0.05); push(cx, 2.0, nz, 'x', CELL, 0.038); }
-    if (oz && !E) { push(px, 1.3, cz, 'z', CELL, 0.05); push(px, 2.0, cz, 'z', CELL, 0.038); }
-    if (oz && !W) { push(nx, 1.3, cz, 'z', CELL, 0.05); push(nx, 2.0, cz, 'z', CELL, 0.038); }
+    if (!isOpen2(i, j)) continue;
+    const x0 = i * CELL, z0 = j * CELL, cx = x0 + CELL / 2, cz = z0 + CELL / 2, h = k => hash(i, j, k);
+    const W = isOpen2(i - 1, j), E = isOpen2(i + 1, j), S = isOpen2(i, j - 1), N = isOpen2(i, j + 1), ox = W || E, oz = S || N;
+    // overhead: a bundle of grey conduit and a lagged line along each run (photos: ceiling packed with conduit)
+    if (ox) for (const [o, r, col] of [[-0.45, 0.03, '#8d8f8c'], [-0.36, 0.03, '#8d8f8c'], [-0.27, 0.025, '#7d7f7c'], [0.1, 0.09, '#cfc4aa'], [0.42, 0.04, '#6f6a60']]) pipe(cx, C2 - 0.12 - r, cz + o, 'x', CELL + 0.02, r, col);
+    if (oz) for (const [o, r, col] of [[-0.45, 0.03, '#8d8f8c'], [-0.36, 0.03, '#8d8f8c'], [-0.27, 0.025, '#7d7f7c'], [0.1, 0.09, '#cfc4aa'], [0.42, 0.04, '#6f6a60']]) pipe(cx + o, C2 - 0.12 - r, cz, 'z', CELL + 0.02, r, col);
+    // the pipe bank (floor to ceiling, one wall): cream lagged mains with bands, rusty and green lines, unistrut brackets, valves
+    const bk = bank2(i, j);
+    if (bk) {
+      const alongX = bk === 'n' || bk === 's', sg = bk === 'n' || bk === 'e' ? 1 : -1, face = alongX ? cz + sg * HW2 : cx + sg * HW2;
+      const at = (u, y, d) => alongX ? [u, y, face - sg * d] : [face - sg * d, y, u];   // u along the run, d inward from the wall face
+      const u0 = alongX ? x0 : z0, uc = u0 + CELL / 2, ax = alongX ? 'x' : 'z';
+      for (const [y, d, r, col] of [[0.4, 0.22, 0.19, '#d6cbb2'], [0.86, 0.12, 0.07, '#7a5236'], [1.12, 0.3, 0.055, '#8a8c8a'], [1.45, 0.15, 0.11, '#4f6b4c'], [1.86, 0.21, 0.15, '#d2c7ad'], [2.22, 0.1, 0.05, '#7a5236']]) {
+        pipe(...at(uc, y, d), ax, CELL + 0.02, r, col);
+        for (const [ni, nj, ue] of alongX ? [[i - 1, j, u0], [i + 1, j, u0 + CELL]] : [[i, j - 1, u0], [i, j + 1, u0 + CELL]])   // the bank ends here: every line turns into the wall
+          if (bank2(ni, nj) !== bk) { pipe(...at(ue, y, d / 2), alongX ? 'z' : 'x', d + 0.03, r, col); pipe(...at(ue, y, d), 'y', r * 2, r * 1.01, col, true); }
+        if (r > 0.14) for (let q = 0; q < 4; q++) pipe(...at(u0 + 0.6 + q * 1.25, y, d), ax, 0.05, r + 0.012, '#a99f86');   // lagging bands
+      }
+      for (const q of [0.05, 2.55]) { const [bx, , bz] = at(u0 + q, 0, 0.42); boxI(bx, C2 / 2, bz, 0.045, C2, 0.045, '#6e6f6c'); }   // unistrut uprights
+      if (h(84) < 0.22) { const [vx, vy, vz] = at(uc + (h(85) - 0.5) * 3, 1.12, 0.47); pipe(vx, vy, vz, alongX ? 'z' : 'x', 0.025, 0.13, '#c8281e', true); pipe(vx, vy, vz, alongX ? 'z' : 'x', 0.12, 0.022, '#555', true); }   // red handwheel gate valve
+      if (h(86) < 0.18) { const [jx, , jz] = at(uc + (h(87) - 0.5) * 3, 0, 0.44); boxI(jx, 1.55, jz, alongX ? 0.28 : 0.1, 0.32, alongX ? 0.1 : 0.28, '#7b7d78'); }   // junction box
+      if (h(88) < 0.25) { const [rx, , rz] = at(uc, 0, 0.47); pipe(rx, 0.95, rz, ax, CELL, 0.022, '#6b2e2a'); }   // maroon handrail
+    }
+    const k = fix2(i, j); if (k) FX[k].push([cx, C2 - (k === 'w' ? 0.07 : 0.06), cz, oz && !ox]);
+    const dr = door2(i, j);
+    if (dr) {                                                       // white / grey / cream steel door, frame, handle, a warning sign or an engraved plate
+      const alongX = dr.side === 'n' || dr.side === 's', sg = dr.side === 'n' || dr.side === 'e' ? 1 : -1, face = alongX ? cz + sg * HW2 : cx + sg * HW2, ry = alongX ? (sg > 0 ? Math.PI : 0) : (sg > 0 ? -Math.PI / 2 : Math.PI / 2);
+      const P = (u, y, d) => alongX ? [u, y, face - sg * d] : [face - sg * d, y, u], uc = alongX ? cx : cz, R = (u, y, d, sx, sy, sz) => B.mat(...P(u, y, d), 0, ry, 0, sx, sy, sz);
+      B.add(G94.box, '#8a8d90', R(uc, 2.12, 0.02, 1.08, 0.1, 0.05)); for (const e of [-1, 1]) B.add(G94.box, '#8a8d90', R(uc + e * 0.5, 1.05, 0.02, 0.08, 2.1, 0.05));
+      B.add(G94.box, dr.paint, R(uc, 1.03, 0.015, 0.92, 2.04, 0.04)); for (const y of [0.55, 1.55]) B.add(G94.box, dr.paint, R(uc, y, 0.04, 0.7, 0.7, 0.01));   // embossed squares
+      B.add(G94.box, '#b5b2a8', R(uc + 0.36, 1.0, 0.06, 0.12, 0.025, 0.03)); B.add(G94.box, '#3a3a38', R(uc + 0.36, 1.12, 0.045, 0.05, 0.06, 0.02));          // lever + lock
+      const mat = dr.kind === 'exit' ? plateMat2 : signMat2[dr.sign], wsz = dr.kind === 'exit' ? [0.24, 0.12] : [0.4, 0.25];
+      if (!SG.has(mat)) SG.set(mat, { P: [], N: [], U: [] }); vq4(SG.get(mat), P(uc, dr.kind === 'exit' ? 1.45 : 1.55, 0.042), ry, ...wsz);
+    }
+    if (deadEnd2(i, j)) {                                           // junk in the dead ends (wiki list): oil drums, boxes, a stepladder, a flatbed trolley
+      for (let q = 0; q < 3; q++) { const a = h(90 + q) * 6.28; pipe(cx + Math.cos(a) * 0.38, 0.44, cz + Math.sin(a) * 0.38, 'y', 0.88, 0.29, ['#2d4e7a', '#7a2620', '#5f6361'][q], true); pipe(cx + Math.cos(a) * 0.38, 0.89, cz + Math.sin(a) * 0.38, 'y', 0.02, 0.3, '#4a4a48', true); }
+      boxI(cx + 0.55, 0.22, cz - 0.5, 0.45, 0.44, 0.4, '#a07f52'); boxI(cx + 0.5, 0.58, cz - 0.48, 0.38, 0.28, 0.34, '#b08c5c'); boxI(cx - 0.55, 0.16, cz + 0.55, 0.9, 0.06, 0.5, '#4d5054');   // cardboard boxes, trolley deck
+      for (const e of [-1, 1]) boxI(cx - 0.6 + e * 0.18, 0.75, cz - 0.6, 0.04, 1.5, 0.04, '#b9bcb8');                                                // stepladder rails
+    }
+    if (h(95) < 0.2) { const sz = 0.5 + h(96) * 1.2; dflat4(D, cx + (h(97) - 0.5) * 2, 0.004, cz + (h(98) - 0.5) * 2, sz, sz * 0.7, h(99) * 6.28, STAIN4, [0.06, 0.05, 0.04, 0.5]); }   // oil / water stains
   }
-  if (!M.length) return;
-  const mesh = new THREE.InstancedMesh(pipeGeo, pipeMat, M.length);
-  M.forEach((m, idx) => mesh.setMatrixAt(idx, m));
-  mesh.instanceMatrix.needsUpdate = true; mesh.frustumCulled = false; group.add(mesh);
+  const add = (geo, mat, list, cols) => { if (!list.length) return; const im = new THREE.InstancedMesh(geo, mat, list.length); list.forEach((m, q) => { im.setMatrixAt(q, m); if (cols) im.setColorAt(q, _c.set(cols[q])); }); im.computeBoundingSphere(); group.add(im); };
+  add(pipeGeo, pipeMat2, M, C); add(pipeCapGeo, pipeMat, MC, CC); add(G94.box, pipeMat, BX, BC);
+  for (const kk of ['w', 'o', 'v']) add(kk === 'w' ? tube2 : kk === 'o' ? lamp2 : emer2, fixMat2[kk], FX[kk].map(([x, y, z, rot]) => new THREE.Matrix4().makeRotationY(rot ? Math.PI / 2 : 0).setPosition(x, y, z)));
+  for (const [m, d] of SG) group.add(geoMesh(d.P, d.N, d.U, m));
+  B.emit(group); if (D.P.length) group.add(decalMesh4(D));
+}
+// walking into an unlocked (plated) door: wiki — unlocked doors marked with signs/engravings are exits; Level 4's entrances include "an unlocked door on Level 2"
+function exit2(pos) {
+  const ci = Math.floor(pos.x / CELL), cj = Math.floor(pos.z / CELL);
+  for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) {
+    const dr = door2(i, j); if (!dr || dr.kind !== 'exit') continue;
+    const cx = i * CELL + CELL / 2, cz = j * CELL + CELL / 2, alongX = dr.side === 'n' || dr.side === 's', sg = dr.side === 'n' || dr.side === 'e' ? 1 : -1;
+    const along = alongX ? pos.x - cx : pos.z - cz, across = alongX ? (cz + sg * HW2) - pos.z : (cx + sg * HW2) - pos.x;
+    if (Math.abs(along) < 0.45 && sg * across < 0.42) return true;
+  }
+  return false;
 }
 function updateChunks(px, pz) {
   const ccx = Math.floor(px / (CELL * CHUNK)), ccz = Math.floor(pz / (CELL * CHUNK));
@@ -2682,7 +2766,7 @@ function updateHvac4(on) {
 if (REAL) {
   for (const m of [poolTileMat, poolDeckMat, poolDeepMat, poolBasinMat, poolCeilMat]) photo(m, 'Tiles107', 4, 4, { rough: 0.85 });   // real glazed tile, grout in the normal map
   photo(poolColMat, 'Tiles107', 5.6, 10, { rough: 0.85 });
-  photo(pipeMat, 'Metal021', 1, 4, { color: '#c9b9a0', metal: 0.55 });
+  for (const m of [pipeMat, pipeMat2]) photo(m, 'Metal021', 1, 4, { keepMap: true, ns: 0.6, metal: 0.05 });   // surface relief only; each pipe's own paint/lagging colour comes from its instance colour
   photo(seaCeilMat, 'Concrete031', 0.4, 0.4, { color: '#9a978e' });
   photo(rockMat, 'Rock058', 1, 1, { color: '#8d8f93' });
   photo(woodMat, 'PaintedWood005', 1, 1, { color: '#b08a6a' });
@@ -2839,7 +2923,7 @@ function frame(now) {
   updateChunks(wx, wz);
   const snap = v => Math.round(v / CELL) * CELL;
   floor.position.set(snap(player.pos.x), 0, snap(player.pos.z));
-  ceil.position.set(snap(player.pos.x), WALL_H, snap(player.pos.z));
+  ceil.position.set(snap(player.pos.x), LV.ceilY ?? WALL_H, snap(player.pos.z));
 
   // lights
   const ci = Math.floor(player.pos.x / CELL), cj = Math.floor(player.pos.z / CELL);
@@ -2864,8 +2948,7 @@ function frame(now) {
     const R = 7, found = [], seed = LV.fixtureSeed ?? 70, rate = LV.fixtureRate ?? 0.11;
     for (let di = -R; di <= R; di++) for (let dj = -R; dj <= R; dj++) {
       const i = ci + di, j = cj + dj;
-      if (currentLevel === 'level0' ? !l0Lit(i, j) : hash(i, j, seed) >= rate) continue;
-      if (currentLevel === 'level2' && !isOpen2(i, j)) continue;
+      if (currentLevel === 'level0' ? !l0Lit(i, j) : currentLevel === 'level2' ? !fix2(i, j) : hash(i, j, seed) >= rate) continue;
       const lx = i * CELL + CELL / 2, lz = j * CELL + CELL / 2;
       found.push([(lx - player.pos.x) ** 2 + (lz - player.pos.z) ** 2, lx, lz, i, j]);
     }
@@ -2873,9 +2956,10 @@ function frame(now) {
     const n = Math.min(found.length, lightBudget);
     for (; li < n; li++) {
       const fx = found[li], l = LIGHTS[li];
-      l.position.set(fx[1], WALL_H - 0.14, fx[2]);
-      l.distance = LV.lightDist; l.decay = LV.lightDecay; l.color.set(LV.lightCol);
-      let f = 1;
+      const k2 = currentLevel === 'level2' ? fix2(fx[3], fx[4]) : null;
+      l.position.set(fx[1], k2 ? C2 - 0.25 : WALL_H - 0.14, fx[2]);
+      l.distance = LV.lightDist; l.decay = LV.lightDecay; l.color.set(k2 ? FIX2[k2] : LV.lightCol);
+      let f = k2 === 'v' ? 0.3 : 1;
       if (hash(fx[3], fx[4], 21) < (LV.flickRate || 0.1)) { const nn = Math.sin(time * 22 + fx[3] * 4.1) + Math.sin(time * 9.3 + fx[4] * 2.7); if (nn > 1.55 || Math.random() < 0.02) f = 0.2; }
       l.intensity = LV.light * globalLight * f;
     }
@@ -2925,7 +3009,8 @@ function frame(now) {
   updateAmbience(!!LV.ocean, l7.phase === 'room', l7.under, globalLight, !!LV.flood);
   if (LV.terrain) frame94(dt, time, xr, wx, wz);
   if (LV.office) frame4(dt, xr, globalLight);
-  updateHvac4(!!LV.office);
+  updateHvac4(!!LV.office || currentLevel === 'level2');
+  if (currentLevel === 'level2' && exit2(player.pos)) { fadeA = 1; setLevel('level4'); toast('AN UNLOCKED DOOR → ' + LV.name); }
   if (audio && audio.on && currentLevel === 'level0') {   // wiki: the buzz "gets louder and quieter severely and randomly", sometimes painfully loud
     hum0T -= dt; if (hum0T <= 0) { const spike = Math.random() < 0.07; hum0T = spike ? 0.8 + Math.random() : 0.7 + Math.random() * 2.6;
       audio.gain.gain.setTargetAtTime(0.05 * (spike ? 3.4 : 0.35 + Math.random() * 1.1), audio.ctx.currentTime, spike ? 0.06 : 0.5); }
