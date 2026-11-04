@@ -625,8 +625,9 @@ function realSurfaces(name) {
     photo(wallMat, 'Concrete046', 1, 1, { color: '#b3ab98' });
     photo(ceilMat, 'Concrete031', 96, 96, { color: '#7b7466' });
   } else if (name === 'level4') {                                             // worn blue-grey office carpet, plaster walls, ceiling tiles
-    photo(floorMat, 'Carpet016', 160, 160, { color: '#8e9bad' });   // medium blue-grey office carpet (like the photo)
-    photo(ceilMat, 'OfficeCeiling001', 192, 192, { keepMap: true, ns: 0.7 });
+    photo(floorMat, 'Carpet016', PLANE, PLANE, { color: '#8e9bad' });   // medium blue-grey office carpet (like the photo)
+    floorMat.map = carpetTiles4(); floorMat.needsUpdate = true;          // ... laid as 50 cm quarter-turned carpet tiles
+    photo(ceilMat, 'OfficeCeiling001', 192, 192, { keepMap: true, ns: 0.7, color: '#cfcec8' });
   }
 }
 function setLevel(name) {
@@ -2310,74 +2311,232 @@ const officeCeilTex = canvasTex(512, 512, (g, w, h) => {      // like the photo:
   for (let t = 0; t < n; t++) for (let u = 0; u < n; u++) { g.fillStyle = `rgba(120,118,110,${Math.random() * 0.06})`; g.fillRect(u * s + 2, t * s + 2, s - 4, s - 4); }   // slightly uneven tiles
   g.fillStyle = '#7a7b79'; g.fillRect(0.5 * s, 1.4 * s, 2.2 * s, s * 0.16); g.fillRect(4.6 * s, 5.4 * s, 2.2 * s, s * 0.16);       // long slot vents
   g.fillStyle = '#9a9b98'; for (let k = 0; k < 9; k++) { g.fillRect(0.5 * s + k * s * 0.24, 1.4 * s, 2, s * 0.16); g.fillRect(4.6 * s + k * s * 0.24, 5.4 * s, 2, s * 0.16); }
-  g.fillStyle = '#efeee9'; g.fillRect(2 * s + 3, 3 * s + 3, 2 * s - 6, 2 * s - 6); g.fillStyle = '#d6d5ce'; for (let k = 0; k < 6; k++) g.fillRect(2 * s + 10, 3 * s + 10 + k * 18, 2 * s - 20, 6);   // light panel diffuser
 });
-const officeCeilEmit = canvasTex(512, 512, (g, w, h) => { g.fillStyle = '#000'; g.fillRect(0, 0, w, h); const s = w / 8; g.fillStyle = '#fff'; g.fillRect(2 * s + 3, 3 * s + 3, 2 * s - 6, 2 * s - 6); });
 const sunPatch4 = new THREE.MeshBasicMaterial({ map: patchTex, color: '#fffaf0', transparent: true, opacity: 0.32, depthWrite: false, toneMapped: false, fog: true, polygonOffset: true, polygonOffsetFactor: -2 });
-// what the uncovered windows show: a bright, too-perfect sunny day with trees
-const windowViewTex = canvasTex(256, 256, (g, w, h) => {
-  const sky = g.createLinearGradient(0, 0, 0, h * 0.62); sky.addColorStop(0, '#7fb6ec'); sky.addColorStop(1, '#d8ecfa'); g.fillStyle = sky; g.fillRect(0, 0, w, h);
-  g.fillStyle = '#7fb253'; g.fillRect(0, h * 0.62, w, h); g.fillStyle = '#6a9c45'; g.fillRect(0, h * 0.8, w, h);
-  for (let k = 0; k < 9; k++) { const x = Math.random() * w, y = h * (0.45 + Math.random() * 0.17), r = 14 + Math.random() * 26; g.fillStyle = `rgb(${40 + Math.random() * 30},${95 + Math.random() * 40},${35})`; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); g.fillStyle = '#5a4030'; g.fillRect(x - 2, y + r * 0.6, 4, r * 0.8); }
+// what the uncovered windows show: a bright, too-perfect summer day a storey below. Not a picture — a
+// parallax view computed per pixel (the ray from your eye through the glass is traced against a lawn,
+// two belts of trees and a cloudy sky), so the outside has real depth and shifts as you walk past.
+const windowViewMat = new THREE.ShaderMaterial({
+  uniforms: { grass: { value: ptex('Grass005', 'c', 1, 1) } },
+  vertexShader: `varying vec3 vW; varying vec3 vN;
+    void main() { vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * viewMatrix * w; }`,
+  fragmentShader: `uniform sampler2D grass; varying vec3 vW; varying vec3 vN;
+    float h1(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(h1(i), h1(i + vec2(1.0, 0.0)), f.x), mix(h1(i + vec2(0.0, 1.0)), h1(i + vec2(1.0, 1.0)), f.x), f.y); }
+    float fbm(vec2 p) { float s = 0.0, a = 0.5; for (int k = 0; k < 5; k++) { s += a * vn(p); p = p * 2.03 + 7.1; a *= 0.5; } return s; }
+    void main() {
+      const float G = -4.5;                                    // the lawn is a storey below the office floor
+      vec3 cam = cameraPosition, d = normalize(vW - cam), n = -normalize(vN), t = normalize(cross(vec3(0.0, 1.0, 0.0), n));
+      float dn = max(dot(d, n), 1e-3), w0 = dot(vW - cam, n);
+      vec3 haze = vec3(0.42, 0.52, 0.66);
+      float e = max(d.y, 0.0);
+      vec3 col = mix(haze, vec3(0.06, 0.17, 0.52), pow(e, 0.55));          // sky
+      if (d.y > 0.01) { vec2 cp = d.xz / d.y; float c = smoothstep(0.48, 0.85, fbm(cp * 0.8 + 11.0)); col = mix(col, vec3(0.85, 0.86, 0.88), c * 0.85 * smoothstep(0.01, 0.15, d.y)); }
+      float hitT = 1e9; vec3 hit = col;
+      if (d.y < -1e-3) {                                                  // mown lawn (the photo grass texture)
+        float tg = (G - cam.y) / d.y; vec3 p = cam + d * tg;
+        vec3 g = texture2D(grass, p.xz * 0.3).rgb * mix(vec3(0.7, 0.82, 0.55), vec3(0.95, 1.0, 0.75), vn(p.xz * 0.07));
+        hitT = tg; hit = g * 0.9;
+      }
+      for (int L = 0; L < 2; L++) {                                       // a near and a far belt of trees
+        float D = L == 0 ? 34.0 : 80.0, s = (w0 + D) / dn;
+        if (s >= hitT) continue;
+        vec3 q = cam + d * s; float u = dot(q, t), h = q.y - G;
+        float top = (L == 0 ? 7.0 : 11.0) + (L == 0 ? 7.0 : 5.0) * fbm(vec2(u * 0.08, D)) + 1.4 * vn(vec2(u * 0.6, D)) + 0.55 * vn(vec2(u * 2.2, D)) + 0.12 * vn(vec2(u * 7.0, D));   // leafy, ragged treetops
+        float bot = L == 0 ? 2.2 + 1.6 * vn(vec2(u * 0.25, 5.0)) : 0.0;
+        if (h > top) continue;
+        if (h < bot) {                                                    // under the crowns: trunks, else see through
+          float tr = fract(u * 0.19 + 2.0 * vn(vec2(u * 0.04, 1.0))), tw = 0.05 + 0.05 * vn(vec2(u * 0.19, 3.0)) + 0.04 * (1.0 - h / bot);
+          if (tr > tw) continue;
+          hitT = s; hit = vec3(0.035, 0.028, 0.02) * (0.6 + 0.8 * vn(vec2(u * 9.0, h * 3.0))); break;
+        }
+        vec3 leaf = texture2D(grass, vec2(u, h) * 0.55 + float(L) * 0.37).rgb * vec3(0.3, 0.46, 0.22);
+        vec2 cc = vec2(u, h) * 0.45; float crown = fbm(cc + float(L) * 5.0);                          // separate crowns, lit from above, dark in between
+        float sh = (0.35 + 0.65 * smoothstep(bot, top, h)) * (0.3 + 1.1 * smoothstep(0.3, 0.75, crown)) * (0.75 + 0.5 * vn(vec2(u, h) * 2.5));
+        hitT = s; hit = leaf * sh; break;
+      }
+      if (hitT < 1e8) col = mix(hit, vec3(0.3, 0.38, 0.4), 1.0 - exp(-hitT * 0.004));   // greyer, thinner haze over land than the sky's
+      gl_FragColor = vec4(col * 1.25, 1.0);                               // overexposed, like a window in a photo of a dim room
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
+  fog: false,
+});
+// blacked-out windows: black paper taped over the outside of the glass, which still reflects the room
+const blackoutTex4 = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#121315'; g.fillRect(0, 0, w, h);
+  for (let k = 0; k < 60; k++) { g.filter = 'blur(3px)'; g.strokeStyle = `rgba(255,255,255,${0.008 + Math.random() * 0.01})`; g.lineWidth = 4 + Math.random() * 6; g.beginPath(); const x = Math.random() * w, y = Math.random() * h, a = Math.random() * 6.28, l = 20 + Math.random() * 90; g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }   // creases
+  g.filter = 'none'; g.fillStyle = 'rgba(48,47,44,0.6)';                                                                            // strips of tape round the edge
+  for (let k = 0; k < 4; k++) { const o = 4 + Math.random() * 6, a = Math.random() * 30, b = w - Math.random() * 40; if (k < 2) g.fillRect(a, k ? h - o - 7 : o, b - a, 7); else g.fillRect(k === 2 ? o : w - o - 7, a, 7, b - a); }
 }, false);
-const windowViewMat = new THREE.MeshBasicMaterial({ map: windowViewTex, toneMapped: false, fog: false });
+const blackGlass4 = REAL ? new THREE.MeshStandardMaterial({ map: blackoutTex4, roughness: 0.05, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 3 })
+                         : new THREE.MeshLambertMaterial({ map: blackoutTex4, side: THREE.DoubleSide });
+// one texture atlas for every soft decal: contact shadows | blob shadows | water stains | fluorescent lens
+const decalTex4 = (() => {
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 256; const g = c.getContext('2d');
+  const lg = g.createLinearGradient(0, 0, 228, 0); for (let k = 0; k <= 10; k++) lg.addColorStop(k / 10, `rgba(255,255,255,${((1 - k / 10) ** 2.2).toFixed(3)})`);
+  g.fillStyle = lg; g.fillRect(0, 0, 232, 256);                                                                      // 0: contact shadow, dark at u = 0
+  const rg = g.createRadialGradient(384, 128, 0, 384, 128, 120); rg.addColorStop(0, 'rgba(255,255,255,1)'); rg.addColorStop(0.4, 'rgba(255,255,255,0.75)'); rg.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = rg; g.fillRect(262, 6, 244, 244);                                                                    // 1: soft blob under furniture
+  g.save(); g.beginPath(); g.rect(518, 4, 244, 248); g.clip();                                                       // 2: water stain with a tide-mark ring
+  for (let k = 0; k < 16; k++) { const x = 640 + (Math.random() - 0.5) * 90, y = 128 + (Math.random() - 0.5) * 90, r = 25 + Math.random() * 45, s = g.createRadialGradient(x, y, 0, x, y, r); s.addColorStop(0, 'rgba(255,255,255,0.3)'); s.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = s; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
+  g.filter = 'blur(4px)'; g.strokeStyle = 'rgba(255,255,255,0.45)'; g.lineWidth = 7; g.beginPath();
+  for (let k = 0; k <= 40; k++) { const a = k / 40 * 6.283, r = 80 + 22 * Math.sin(a * 3 + 1) + 12 * Math.sin(a * 7); g[k ? 'lineTo' : 'moveTo'](640 + Math.cos(a) * r, 128 + Math.sin(a) * r); }
+  g.stroke(); g.restore(); g.filter = 'none';
+  g.fillStyle = '#e2e6ea'; g.fillRect(774, 6, 244, 244);                                                            // 3: prismatic troffer lens, two tubes glowing through
+  for (const x of [835, 957]) { const tg = g.createLinearGradient(x - 50, 0, x + 50, 0); tg.addColorStop(0, 'rgba(255,255,255,0)'); tg.addColorStop(0.5, 'rgba(255,255,255,1)'); tg.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = tg; g.fillRect(x - 50, 6, 100, 244); }
+  g.fillStyle = 'rgba(150,160,170,0.25)'; for (let y = 8; y < 250; y += 6) for (let x = 776 + (y % 12 ? 3 : 0); x < 1016; x += 6) g.fillRect(x, y, 2, 2);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+})();
+const decalMat4 = new THREE.MeshBasicMaterial({ map: decalTex4, vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+const AO4 = [0.003, 0.222, 0.1, 0.9], BLOB4 = [262 / 1024, 506 / 1024, 0.03, 0.97], STAIN4 = [518 / 1024, 762 / 1024, 0.02, 0.98], LENS4 = [776 / 1024, 1016 / 1024, 0.03, 0.97], HOLE4 = [0.003, 0.006, 0.3, 0.7];
+const dk4 = () => ({ P: [], N: [], U: [], C: [] });
+function dq4(D, a, b, c, d, [u0, u1, v0, v1], col) {   // quad: a,b on the u0 edge, c,d on the u1 edge
+  for (const [p, u, v] of [[a, u0, v0], [b, u0, v1], [c, u1, v1], [a, u0, v0], [c, u1, v1], [d, u1, v0]]) { D.P.push(p[0], p[1], p[2]); D.N.push(0, 1, 0); D.U.push(u, v); D.C.push(col[0], col[1], col[2], col[3]); }
+}
+function dflat4(D, x, y, z, w, l, ang, rect, col) {    // a decal lying flat at height y, rotated by ang
+  const c = Math.cos(ang), s = Math.sin(ang), P = (a, b) => [x + a * c - b * s, y, z + a * s + b * c];
+  dq4(D, P(-w / 2, -l / 2), P(-w / 2, l / 2), P(w / 2, l / 2), P(w / 2, -l / 2), rect, col);
+}
+function decalMesh4(D) {
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(D.P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(D.N, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(D.U, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(D.C, 4)); g.computeBoundingSphere();
+  const m = new THREE.Mesh(g, decalMat4); m.renderOrder = 1; return m;
+}
+// soft contact shadows where a wall / pillar meets the floor and the ceiling (cheap stand-in for ambient occlusion)
+const AOF4 = [0, 0, 0, 0.5], AOW4 = [0, 0, 0, 0.38], AOC4 = [0, 0, 0, 0.4], AOT4 = [0, 0, 0, 0.3];
+function aoBox4(D, [x0, x1, y0, y1, z0, z1]) {
+  const L = 0.45, H = 0.34, e = 0.004, fl = y0 < 0.01, cl = y1 > WALL_H - 0.01, Y = WALL_H;
+  for (const [ax, sg, c, s0, s1] of [[0, 1, x1, z0, z1], [0, -1, x0, z0, z1], [1, 1, z1, x0, x1], [1, -1, z0, x0, x1]]) {
+    const P = (s, y, o) => ax === 0 ? [c + sg * o, y, s] : [s, y, c + sg * o];
+    if (fl) { dq4(D, P(s0, 0.004, 0), P(s1, 0.004, 0), P(s1, 0.004, L), P(s0, 0.004, L), AO4, AOF4); dq4(D, P(s0, 0, e), P(s1, 0, e), P(s1, H, e), P(s0, H, e), AO4, AOW4); }
+    if (cl) { dq4(D, P(s0, Y - 0.004, 0), P(s1, Y - 0.004, 0), P(s1, Y - 0.004, L), P(s0, Y - 0.004, L), AO4, AOC4); dq4(D, P(s0, Y, e), P(s1, Y, e), P(s1, Y - H, e), P(s0, Y - H, e), AO4, AOT4); }
+  }
+}
+function vq4(G, [x, y, z], ry, w, h) {   // vertical quad (uv 0..1) centred on x,y,z, facing along ry
+  const tx = Math.cos(ry) * w / 2, tz = -Math.sin(ry) * w / 2, nx = Math.sin(ry), nz = Math.cos(ry);
+  const A = [x - tx, y - h / 2, z - tz, 0, 0], B = [x + tx, y - h / 2, z + tz, 1, 0], C = [x + tx, y + h / 2, z + tz, 1, 1], E = [x - tx, y + h / 2, z - tz, 0, 1];
+  for (const v of [A, B, C, A, C, E]) { G.P.push(v[0], v[1], v[2]); G.N.push(nx, 0, nz); G.U.push(v[3], v[4]); }
+}
+// a pleated drape: wavy front and back sheets with smooth-shaded folds
+const curtainGeo4 = (() => {
+  const n = 16, W = 0.4, H = 1.74, A = 0.03, T = 0.007, pos = [], idx = [];
+  for (const side of [1, -1]) for (let k = 0; k <= n; k++) { const x = -W / 2 + W * k / n, z = A * Math.sin(k / n * Math.PI * 5) + side * T; pos.push(x, -H / 2, z, x, H / 2, z); }
+  const o = 2 * (n + 1);
+  for (let k = 0; k < n; k++) { const a = 2 * k, b = a + 1, c = a + 2, d = a + 3; idx.push(a, c, b, c, d, b, o + a, o + b, o + c, o + c, o + b, o + d); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals(); return g;
+})();
+function radiator4(B, at, am, s) {    // sectional radiator under the window: 12 sections, headers, feet and a valve
+  const n = 12, w = 1.2, C = '#e7e4dc';
+  for (let q = 0; q < n; q++) B.add(G94.box, C, at(am - w / 2 + (q + 0.5) * w / n, 0.47, s * 0.235, 0.055, 0.56, 0.1));
+  for (const y of [0.22, 0.72]) B.add(G94.box, C, at(am, y, s * 0.235, w, 0.04, 0.06));
+  for (const e of [-1, 1]) B.add(G94.box, '#cfccc4', at(am + e * 0.5, 0.09, s * 0.235, 0.05, 0.18, 0.05));
+  B.add(G94.box, '#b9b7b0', at(am + w / 2 + 0.05, 0.28, s * 0.235, 0.06, 0.06, 0.06)); B.add(G94.box, '#c9c6be', at(am + w / 2 + 0.05, 0.14, s * 0.235, 0.025, 0.28, 0.025));
+}
+function chair4(B, R, col) {          // swivel office chair: five-star base on casters, gas lift, cushioned seat and back
+  for (let k = 0; k < 5; k++) { const L = B.mat(0, 0, 0, 0, k * 1.2566, 0, 1, 1, 1, R);
+    B.add(G94.box, '#26272a', B.mat(0.15, 0.085, 0, 0, 0, -0.16, 0.3, 0.03, 0.045, L)); B.add(G94.box, '#18191b', B.mat(0.29, 0.03, 0, 0, 0, 0, 0.05, 0.05, 0.035, L)); }
+  B.add(G94.cyl8, '#2c2d30', B.mat(0, 0.12, 0, 0, 0, 0, 0.045, 0.07, 0.045, R)); B.add(G94.cyl8, '#5a5c60', B.mat(0, 0.27, 0, 0, 0, 0, 0.024, 0.28, 0.024, R));
+  B.add(G94.box, '#26272a', B.mat(0, 0.41, 0, 0, 0, 0, 0.3, 0.03, 0.3, R)); B.add(G94.sph, col, B.mat(0, 0.46, 0.01, 0, 0, 0, 0.25, 0.055, 0.24, R));
+  B.add(G94.box, '#26272a', B.mat(0, 0.6, -0.235, -0.08, 0, 0, 0.05, 0.32, 0.02, R)); B.add(G94.sph, col, B.mat(0, 0.84, -0.25, -0.1, 0, 0, 0.22, 0.24, 0.05, R));
+}
+// 50 cm carpet tiles laid quarter-turn, cut from the photo carpet (one texture repeat = 1 m = 2 x 2 tiles)
+function carpetTiles4() {
+  if (carpetTiles4.t) return carpetTiles4.t;
+  const c = document.createElement('canvas'); c.width = c.height = 1024; const g = c.getContext('2d'); g.fillStyle = '#7b7d80'; g.fillRect(0, 0, 1024, 1024);
+  const t = carpetTiles4.t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; t.repeat.set(PLANE, PLANE);
+  new THREE.ImageLoader().load('textures/Carpet016_c.jpg', img => {
+    const iw = img.width / 2;
+    for (let q = 0; q < 4; q++) { const qx = q & 1, qy = q >> 1; g.save(); g.translate(qx * 512 + 256, qy * 512 + 256); g.rotate((qx ^ qy) * Math.PI / 2); g.filter = `brightness(${[1, 0.975, 0.985, 1.02][q]})`; g.drawImage(img, iw / 2, iw / 2, iw, iw, -256, -256, 512, 512); g.restore(); }
+    g.filter = 'none'; g.fillStyle = 'rgba(15,18,22,0.22)'; for (const k of [0, 511]) { g.fillRect(k, 0, 2, 1024); g.fillRect(0, k, 1024, 2); }
+    t.needsUpdate = true;
+  });
+  return t;
+}
 const exitTex = canvasTex(128, 48, (g, w, h) => { g.fillStyle = '#0d7a3a'; g.fillRect(0, 0, w, h); g.fillStyle = '#e9fff0'; g.font = 'bold 32px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('EXIT', w / 2, h / 2 + 1); }, false);
 const stairsTex = canvasTex(128, 48, (g, w, h) => { g.fillStyle = '#1f3d7a'; g.fillRect(0, 0, w, h); g.fillStyle = '#ffffff'; g.font = 'bold 26px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('STAIRS', w / 2, h / 2 + 1); }, false);
 const exitMat = new THREE.MeshBasicMaterial({ map: exitTex, fog: true }), stairsMat = new THREE.MeshBasicMaterial({ map: stairsTex, fog: true });
 // ---- chunk builder ----
 function buildChunk4(group, cx, cz) {
-  const i0 = cx * CHUNK, j0 = cz * CHUNK, P = [], N = [], U = [], B = batch94(), box = G94.box, signs = [];
+  const i0 = cx * CHUNK, j0 = cz * CHUNK, P = [], N = [], U = [], B = batch94(), box = G94.box, signs = [], D = dk4(), GL = { P: [], N: [], U: [] };
   for (let i = i0; i < i0 + CHUNK; i++) for (let j = j0; j < j0 + CHUNK; j++) {
-    const x0 = i * CELL, z0 = j * CELL, x1 = x0 + CELL, z1 = z0 + CELL, rI = rid4(i), rJ = rid4(j);
-    for (const bx of office4Boxes(i, j)) if (bx[3] - bx[2] > 0.3 && (bx[1] - bx[0] < 0.3 || bx[5] - bx[4] < 0.3 || bx[3] === WALL_H)) addBox(P, N, U, bx);   // walls + pillar (props are drawn below)
+    const x0 = i * CELL, z0 = j * CELL, x1 = x0 + CELL, z1 = z0 + CELL, rI = rid4(i), rJ = rid4(j), li = loc4(i), lj = loc4(j), h = k => hash(i, j, k);
+    for (const bx of office4Boxes(i, j)) if (bx[3] - bx[2] > 0.3 && (bx[1] - bx[0] < 0.3 || bx[5] - bx[4] < 0.3 || bx[3] === WALL_H)) { addBox(P, N, U, bx); aoBox4(D, bx); }   // walls + pillar (props are drawn below)
+    // ceiling: a recessed 600 x 1200 troffer over every cell centre (the point lights hang under them)
+    const fx = x0 + CELL / 2, fz = z0 + CELL / 2;
+    B.add(box, '#d2d3d0', B.mat(fx, 2.991, fz, 0, 0, 0, 0.64, 0.018, 1.24));
+    dflat4(D, fx, 2.981, fz, 0.58, 1.18, 0, LENS4, [2.3, 2.32, 2.4, 1]);
+    if ((li & 1) && (lj & 1)) { B.add(G94.cyl8, '#dcdcd7', B.mat(x0 + 1.25, 2.995, z0 + 1.25, 0, 0, 0, 0.035, 0.01, 0.035)); B.add(box, '#a9a9a3', B.mat(x0 + 1.25, 2.975, z0 + 1.25, 0, 0, 0, 0.02, 0.035, 0.02)); }   // sprinkler head
+    if (h(469) < 0.06) B.add(G94.cyl8, '#eeeeea', B.mat(x0 + 3.75, 2.985, z0 + 1.25, 0, 0, 0, 0.065, 0.03, 0.065));                // smoke detector
+    if (h(470) < 0.13) { const s = 0.45 + h(473) * 0.9; dflat4(D, x0 + 0.6 + h(471) * 3.8, WALL_H - 0.005, z0 + 0.6 + h(472) * 3.8, s, s * (0.7 + 0.5 * h(474)), h(475) * 6.28, STAIN4, [0.4, 0.28, 0.12, 0.6]); }   // water-damaged tiles
+    if (h(476) < 0.035) {              // a missing ceiling tile — and the tile itself, fallen onto the carpet below
+      const tx = x0 + (1 + Math.floor(h(477) * 2) + 0.5) * 0.625, tz = z0 + (1 + Math.floor(h(478) * 6) + 0.5) * 0.625;
+      dflat4(D, tx, WALL_H - 0.006, tz, 0.6, 0.6, 0, HOLE4, [0.015, 0.015, 0.015, 1]);
+      B.add(box, '#d6d4cc', B.mat(tx + 0.4 * (h(479) - 0.5), 0.012, tz + 0.5 * (h(480) - 0.5), 0.05 * (h(481) - 0.5), h(482) * 3, 0.04, 0.6, 0.016, 0.6));
+    }
+    if (h(483) < 0.1) { const s = 0.5 + h(484) * 1.1; dflat4(D, x0 + 0.5 + h(485) * 4, 0.004, z0 + 0.5 + h(486) * 4, s, s * (0.6 + 0.6 * h(487)), h(488) * 6.28, STAIN4, [0.08, 0.06, 0.04, 0.45]); }   // old stains in the carpet
     for (const ax of [0, 1]) {
-      if ((ax === 0 ? loc4(i) : loc4(j)) !== R4 - 1) continue;
-      const c = ax === 0 ? x1 : z1, a0 = ax === 0 ? z0 : x0, am = a0 + CELL / 2, l = ax === 0 ? loc4(j) : loc4(i), type = edge4(rI, rJ, ax);
+      if ((ax === 0 ? li : lj) !== R4 - 1) continue;
+      const c = ax === 0 ? x1 : z1, a0 = ax === 0 ? z0 : x0, am = a0 + CELL / 2, l = ax === 0 ? lj : li, type = edge4(rI, rJ, ax);
       const W = (u, y, n) => ax === 0 ? [c + n, y, u] : [u, y, c + n], ry = ax === 0 ? Math.PI / 2 : 0;   // n: offset across the wall
       const at = (u, y, n, sx, sy, sz) => B.mat(...W(u, y, n), 0, ry, 0, sx, sy, sz);
+      const isDoor = type === 'door' && door4(rI, rJ, ax, l), kind = isDoor ? doorKind4(rI, rJ, ax, l) : null;
       if (type === 'window') {
-        for (const s of [-1, 1]) {                                                      // both faces: frame, sill, radiator, curtains
-          B.add(box, '#f7f7f4', at(am, 2.37, s * 0.15, 1.7, 0.08, 0.06)); B.add(box, '#f7f7f4', at(am, 0.88, s * 0.18, 1.75, 0.06, 0.14));
-          for (const e of [-1, 1]) B.add(box, '#f7f7f4', at(am + e * 0.82, 1.62, s * 0.15, 0.08, 1.5, 0.06));
-          B.add(box, '#e8e8e2', at(am, 0.5, s * 0.22, 1.3, 0.55, 0.1)); for (let q = 0; q < 10; q++) B.add(box, '#d6d6cf', at(am - 0.6 + q * 0.133, 0.5, s * 0.28, 0.03, 0.5, 0.03));
-          for (const e of [-1, 1]) B.add(box, '#c98a52', at(am + e * 0.98, 1.55, s * 0.2, 0.28, 1.7, 0.05));          // orange curtains (like the photo)
+        for (const s of [-1, 1]) {                                                      // both faces: frame, sill, radiator, curtains on a rod
+          B.add(box, '#e6e6e2', at(am, 2.37, s * 0.15, 1.7, 0.07, 0.06)); B.add(box, '#ecebe6', at(am, 0.9, s * 0.17, 1.78, 0.04, 0.13));
+          for (const e of [-1, 1]) B.add(box, '#e6e6e2', at(am + e * 0.82, 1.62, s * 0.15, 0.07, 1.5, 0.06));
+          B.add(box, '#e6e6e2', at(am, 1.62, s * 0.05, 0.04, 1.45, 0.04));                                            // mullion
+          radiator4(B, at, am, s);
+          B.add(G94.cyl8, '#8b8d8f', B.mat(...W(am, 2.5, s * 0.21), 0, ry, Math.PI / 2, 0.011, 2.5, 0.011));          // curtain rod + brackets
+          for (const e of [-1, 1]) B.add(box, '#8b8d8f', at(am + e * 1.15, 2.5, s * 0.165, 0.02, 0.02, 0.09));
+          for (const e of [-1, 1]) B.add(curtainGeo4, '#9e6a40', B.mat(...W(am + e * 1.0, 1.61, s * 0.21), 0, ry, 0, 1, 1, 1));   // orange drapes (like the photo)
         }
         if (clearWin4(i, j, ax)) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.45), windowViewMat); m.position.set(...W(am, 1.62, 0)); m.rotation.y = ry; const m2 = m.clone(); m2.rotation.y = ry + Math.PI; group.add(m, m2);
           for (const sd of [-1, 1]) { const pt = new THREE.Mesh(new THREE.PlaneGeometry(ax === 0 ? 2.6 : 1.9, ax === 0 ? 1.9 : 2.6), sunPatch4); pt.rotation.x = -Math.PI / 2; pt.position.set(...W(am, 0.015, sd * 1.55)); group.add(pt); } }   // daylight pooling on the carpet
-        else B.win(box, at(am, 1.62, 0, 1.6, 1.45, 0.05));                              // blacked out
-      } else if (type === 'door' && door4(rI, rJ, ax, l)) {
-        const kind = doorKind4(rI, rJ, ax, l);
-        for (const s of [-1, 1]) { B.add(box, '#b9875a', at(am, 2.18, s * 0.15, 1.36, 0.1, 0.05)); for (const e of [-1, 1]) B.add(box, '#b9875a', at(am + e * 0.64, 1.07, s * 0.15, 0.09, 2.15, 0.05)); }
-        if (kind === 'open') B.add(box, '#d39a5c', at(am + 0.6, 1.03, 0.62, 0.05, 2.05, 1.0));           // the door, open against the wall
-        else if (kind === 'stairs') { for (const s of [-1, 1]) { B.add(box, '#d39a5c', at(am, 1.03, s * 0.13, 1.1, 2.05, 0.05)); B.lamp(G94.sph, at(am + 0.42, 1.0, s * 0.17, 0.04, 0.04, 0.04)); }
+        else vq4(GL, W(am, 1.62, 0), ry, 1.6, 1.45);                                    // blacked out
+      } else if (isDoor) {
+        for (const s of [-1, 1]) { B.add(box, '#8f9295', at(am, 2.18, s * 0.15, 1.36, 0.1, 0.05)); for (const e of [-1, 1]) B.add(box, '#8f9295', at(am + e * 0.64, 1.07, s * 0.15, 0.09, 2.15, 0.05)); }   // painted steel frame
+        if (kind === 'open') { B.add(box, '#8c7259', at(am + 0.6, 1.03, 0.62, 0.045, 2.05, 1.0)); B.add(box, '#b9bbbd', at(am + 0.6, 1.0, 0.25, 0.1, 0.02, 0.12)); }   // wood-veneer door, open against the wall
+        else if (kind === 'stairs') { for (const s of [-1, 1]) { B.add(box, '#8c7259', at(am, 1.03, s * 0.13, 1.1, 2.05, 0.05)); B.add(box, '#b9bbbd', at(am + 0.38, 1.0, s * 0.165, 0.13, 0.022, 0.03)); B.add(box, '#cfd3d6', at(am - 0.2, 1.55, s * 0.158, 0.12, 0.6, 0.008)); }   // + lever handle, wired-glass vision panel
           for (const s of [-1, 1]) signs.push([stairsMat, W(am, 2.5, s * 0.14), ry + (s < 0 ? Math.PI : 0), 0.6, 0.22]); }
-        else { for (const s of [-1, 1]) { B.add(box, '#9ea3a8', at(am - 0.28, 1.05, s * 0.14, 0.55, 2.1, 0.05)); B.add(box, '#9ea3a8', at(am + 0.28, 1.05, s * 0.14, 0.55, 2.1, 0.05)); B.add(box, '#55595e', at(am, 1.05, s * 0.15, 0.02, 2.1, 0.05)); B.lamp(G94.sph, at(am + 0.9, 1.15, s * 0.15, 0.04, 0.04, 0.03)); B.add(box, '#2a2c30', at(am, 2.35, s * 0.15, 0.4, 0.14, 0.04)); } }   // elevator doors + call button + floor display
-        if (kind !== 'elevator' && hash(i, j, 460 + ax) < 0.6) for (const s of [-1, 1]) signs.push([exitMat, W(am, 2.5, s * 0.14), ry + (s < 0 ? Math.PI : 0), 0.4, 0.15]);
+        else { for (const s of [-1, 1]) { B.add(box, '#a4a8ac', at(am - 0.28, 1.05, s * 0.14, 0.55, 2.1, 0.05)); B.add(box, '#a4a8ac', at(am + 0.28, 1.05, s * 0.14, 0.55, 2.1, 0.05)); B.add(box, '#55595e', at(am, 1.05, s * 0.15, 0.02, 2.1, 0.05)); B.add(box, '#c4c7ca', at(am + 0.9, 1.15, s * 0.125, 0.09, 0.2, 0.012)); B.lamp(G94.sph, at(am + 0.9, 1.15, s * 0.135, 0.022, 0.022, 0.01)); B.add(box, '#2a2c30', at(am, 2.35, s * 0.15, 0.4, 0.14, 0.04)); } }   // elevator doors + call button + floor display
+        if (kind !== 'elevator' && hash(i, j, 460 + ax) < 0.6) for (const s of [-1, 1]) { signs.push([exitMat, W(am, 2.5, s * 0.16), ry + (s < 0 ? Math.PI : 0), 0.4, 0.15]); B.add(box, '#e8e8e4', at(am, 2.5, s * 0.135, 0.44, 0.19, 0.03)); }
+        for (const s of [-1, 1]) B.add(box, '#ecebe4', at(am - 0.86, 1.2, s * 0.125, 0.07, 0.115, 0.012));          // light switch
       }
-      if (type !== 'open') for (const s of [-1, 1]) B.add(box, '#eeede8', at(a0 + 0.001, 1.5, s * 0.2, 0.36, 3.0, 0.16));     // pilasters along the wall
+      if (type !== 'open') {
+        for (const s of [-1, 1]) B.add(box, '#eeede8', at(a0 + 0.001, 1.5, s * 0.2, 0.36, 3.0, 0.16));            // pilasters along the wall
+        if (h(490 + ax) < 0.7) for (const s of [-1, 1]) { B.add(box, '#ecebe4', at(am + 1.65, 0.32, s * 0.125, 0.075, 0.115, 0.012)); for (const y of [0.3, 0.345]) B.add(box, '#3b3b39', at(am + 1.65, y, s * 0.1315, 0.02, 0.012, 0.004)); }   // power outlet
+        if (!isDoor && h(492 + ax) < 0.18) for (const s of [-1, 1]) B.add(box, '#d9d4c6', at(am - 1.7, 1.5, s * 0.133, 0.12, 0.09, 0.026));                              // thermostat
+      }
     }
     for (const p of props4(i, j)) {
-      const M = B.mat(p.x, 0, p.z);
-      if (p.k === 'cooler') { B.add(box, '#f2f2ef', B.mat(0, 0.5, 0, 0, 0, 0, 0.4, 1.0, 0.4, M)); B.add(box, '#2b6cb0', B.mat(0.08, 0.82, 0.205, 0, 0, 0, 0.06, 0.06, 0.02, M)); B.add(box, '#c0392b', B.mat(-0.08, 0.82, 0.205, 0, 0, 0, 0.06, 0.06, 0.02, M));
-        B.add(G94.cyl, '#efe2c2', B.mat(0, 1.25, 0, 0, 0, 0, 0.16, 0.5, 0.16, M)); B.add(G94.cyl, '#dfe9f2', B.mat(0, 1.55, 0, 0, 0, 0, 0.06, 0.1, 0.06, M));   // jug of Almond Water
-        for (let q = 0; q < 4; q++) B.add(G94.cyl, '#fbfbf8', B.mat(0.24, 0.6 + q * 0.06, 0.1, 0, 0, 0, 0.035, 0.07, 0.035, M)); }                                       // paper cups
-      else if (p.k === 'vend') { B.add(box, '#7a1f24', B.mat(0, 0.95, 0, 0, 0, 0, 1.0, 1.9, 0.85, M)); B.win(box, B.mat(-0.12, 1.15, 0.43, 0, 0, 0, 0.62, 1.2, 0.02, M)); B.lamp(box, B.mat(-0.12, 1.15, 0.425, 0, 0, 0, 0.58, 1.15, 0.01, M));
-        for (let r = 0; r < 5; r++) for (let c = 0; c < 4; c++) B.add(box, ['#e8d9b0', '#c94', '#3a7', '#ddd'][(r + c) % 4], B.mat(-0.36 + c * 0.16, 0.72 + r * 0.2, 0.36, 0, 0, 0, 0.1, 0.12, 0.06, M));
-        B.add(box, '#cfcfcf', B.mat(0.35, 1.2, 0.43, 0, 0, 0, 0.16, 0.5, 0.02, M)); }
-      else if (p.k === 'desk') { const R = B.mat(0, 0, 0, 0, p.rot ? Math.PI / 2 : 0, 0, 1, 1, 1, M);
-        B.add(box, '#b08a5e', B.mat(0, 0.74, 0, 0, 0, 0, 1.6, 0.04, 0.8, R)); for (const sx of [-1, 1]) B.add(box, '#8f8f8f', B.mat(sx * 0.75, 0.37, 0, 0, 0, 0, 0.04, 0.72, 0.74, R));
-        B.add(box, '#d8d1bd', B.mat(-0.25, 0.98, -0.05, 0, 0, 0, 0.42, 0.38, 0.42, R)); B.win(box, B.mat(-0.25, 1.0, 0.162, 0, 0, 0, 0.32, 0.25, 0.01, R));            // beige CRT
-        B.add(box, '#d8d1bd', B.mat(-0.25, 0.77, 0.3, 0, 0, 0, 0.42, 0.03, 0.15, R)); B.add(box, '#cfc8b4', B.mat(0.5, 0.86, -0.1, 0, 0, 0, 0.42, 0.22, 0.35, R));       // keyboard, printer
+      const M = B.mat(p.x, 0, p.z), sh = (w, l) => dflat4(D, p.x, 0.005, p.z, w, l, 0, BLOB4, [0, 0, 0, 0.6]);
+      if (p.k === 'cooler') { sh(0.85, 0.85); B.add(box, '#ecebe6', B.mat(0, 0.5, 0, 0, 0, 0, 0.36, 1.0, 0.36, M)); B.add(box, '#cfcdc6', B.mat(0, 0.04, 0, 0, 0, 0, 0.37, 0.08, 0.37, M)); B.add(box, '#9a9a96', B.mat(0, 0.7, 0.17, 0, 0, 0, 0.26, 0.2, 0.04, M));
+        B.add(box, '#2b6cb0', B.mat(0.06, 0.74, 0.195, 0, 0, 0, 0.04, 0.05, 0.03, M)); B.add(box, '#c0392b', B.mat(-0.06, 0.74, 0.195, 0, 0, 0, 0.04, 0.05, 0.03, M)); B.add(box, '#7d7d79', B.mat(0, 0.58, 0.17, 0, 0, 0, 0.22, 0.02, 0.06, M));
+        B.add(G94.cyl, '#e6dcc2', B.mat(0, 1.24, 0, 0, 0, 0, 0.15, 0.46, 0.15, M)); B.add(G94.sph, '#e6dcc2', B.mat(0, 1.47, 0, 0, 0, 0, 0.15, 0.06, 0.15, M)); B.add(G94.cyl8, '#dfe5ea', B.mat(0, 1.02, 0, 0, 0, 0, 0.05, 0.06, 0.05, M));   // jug of Almond Water
+        for (let q = 0; q < 5; q++) B.add(G94.cyl8, '#fbfbf8', B.mat(0.22, 0.55 + q * 0.05, 0.08, 0, 0, 0, 0.03, 0.07, 0.03, M)); }                                       // paper cups
+      else if (p.k === 'vend') { sh(1.45, 1.3); B.add(box, '#5e1a1e', B.mat(0, 0.95, 0, 0, 0, 0, 1.0, 1.9, 0.85, M)); B.add(box, '#1c1c1e', B.mat(0, 0.04, 0.02, 0, 0, 0, 1.0, 0.08, 0.85, M)); B.lamp(box, B.mat(-0.12, 1.15, 0.43, 0, 0, 0, 0.62, 1.2, 0.01, M));                                             // back-lit window
+        for (const [x, y, w, hh] of [[-0.12, 1.77, 0.7, 0.04], [-0.12, 0.53, 0.7, 0.04], [-0.45, 1.15, 0.04, 1.28], [0.21, 1.15, 0.04, 1.28]]) B.add(box, '#4a1418', B.mat(x, y, 0.47, 0, 0, 0, w, hh, 0.08, M));   // frame round it
+        for (let r = 0; r < 5; r++) { B.add(box, '#8c8c8a', B.mat(-0.12, 0.62 + r * 0.24, 0.47, 0, 0, 0, 0.62, 0.012, 0.07, M));                            // shelves of snacks
+          for (let c = 0; c < 5; c++) B.add(box, ['#d9c08a', '#b5443a', '#3d7a4e', '#c9a23a', '#3b5a8f'][(r * 2 + c) % 5], B.mat(-0.38 + c * 0.13, 0.69 + r * 0.24, 0.465, 0, 0, 0, 0.09, 0.12, 0.05, M)); }
+        B.add(box, '#bdbdbd', B.mat(0.35, 1.2, 0.43, 0, 0, 0, 0.16, 0.5, 0.02, M)); B.add(box, '#1a1a1a', B.mat(-0.12, 0.33, 0.43, 0, 0, 0, 0.5, 0.16, 0.02, M)); }
+      else if (p.k === 'desk') { sh(p.rot ? 1.2 : 2.0, p.rot ? 2.0 : 1.2); const R = B.mat(0, 0, 0, 0, p.rot ? Math.PI / 2 : 0, 0, 1, 1, 1, M);
+        B.add(box, '#a98a64', B.mat(0, 0.74, 0, 0, 0, 0, 1.6, 0.035, 0.8, R)); for (const sx of [-1, 1]) B.add(box, '#7f8184', B.mat(sx * 0.75, 0.37, 0, 0, 0, 0, 0.035, 0.72, 0.74, R)); B.add(box, '#7f8184', B.mat(0, 0.45, -0.37, 0, 0, 0, 1.45, 0.45, 0.02, R));   // modesty panel
+        B.add(box, '#d4cdb8', B.mat(-0.25, 0.97, -0.08, 0, 0, 0, 0.4, 0.36, 0.38, R)); B.add(box, '#cbc4ae', B.mat(-0.25, 0.94, -0.3, 0, 0, 0, 0.3, 0.26, 0.12, R)); B.win(box, B.mat(-0.25, 0.99, 0.113, 0, 0, 0, 0.3, 0.24, 0.01, R));   // beige CRT
+        B.add(box, '#d4cdb8', B.mat(-0.25, 0.77, 0.25, 0, 0, 0, 0.44, 0.025, 0.15, R)); B.add(box, '#cbc4ae', B.mat(0.5, 0.86, -0.1, 0, 0, 0, 0.42, 0.2, 0.34, R)); B.add(box, '#f4f3ee', B.mat(0.5, 0.97, -0.18, -0.5, 0, 0, 0.21, 0.004, 0.29, R));   // keyboard, printer + paper
         B.add(G94.cyl, '#e9e9e9', B.mat(0.2, 0.84, 0.15, 0, 0, 0, 0.08, 0.18, 0.08, R));                                                                          // electric kettle
-        B.add(box, '#26282c', B.mat(-0.2, 0.47, 0.75, 0, 0, 0, 0.48, 0.07, 0.46, R)); B.add(box, '#26282c', B.mat(-0.2, 0.8, 0.98, 0, 0, 0, 0.46, 0.55, 0.06, R)); B.add(G94.cyl, '#3a3c40', B.mat(-0.2, 0.23, 0.75, 0, 0, 0, 0.03, 0.45, 0.03, R)); }
-      else if (p.k === 'stack') for (let q = 0; q < 6; q++) { B.add(box, '#2c3e66', B.mat(0, 0.45 + q * 0.12, 0, 0, 0, 0, 0.46, 0.06, 0.44, M)); B.add(box, '#2c3e66', B.mat(0, 0.75 + q * 0.12, -0.2, 0, 0, 0, 0.44, 0.4, 0.04, M)); B.add(box, '#9a9a9a', B.mat(0, 0.22 + q * 0.12, 0.18, 0, 0, 0, 0.42, 0.45, 0.02, M)); }
-      else if (p.k === 'chair') { const R = B.mat(0, 0, 0, 0, p.ry, 0, 1, 1, 1, M); B.add(box, '#2c3e66', B.mat(0, 0.46, 0, 0, 0, 0, 0.46, 0.06, 0.44, R)); B.add(box, '#2c3e66', B.mat(0, 0.75, -0.2, 0, 0, 0, 0.44, 0.45, 0.04, R)); for (const sx of [-1, 1]) for (const sz of [-1, 1]) B.add(box, '#9a9a9a', B.mat(sx * 0.2, 0.22, sz * 0.18, 0, 0, 0, 0.025, 0.44, 0.025, R)); }
-      else if (p.k === 'ext') { B.add(G94.cyl, '#c0281e', B.mat(0, 0.45, 0, 0, 0, 0, 0.09, 0.55, 0.09, M)); B.add(box, '#222', B.mat(0, 0.8, 0, 0, 0, 0, 0.06, 0.12, 0.06, M)); }
+        chair4(B, B.mat(-0.2, 0, 0.75, 0, Math.PI + 0.3, 0, 1, 1, 1, R), '#2e3a50'); }
+      else if (p.k === 'stack') { sh(0.85, 0.85); for (let q = 0; q < 6; q++) { B.add(box, '#334262', B.mat(0, 0.45 + q * 0.12, 0, 0, 0, 0, 0.46, 0.05, 0.44, M)); B.add(box, '#334262', B.mat(0, 0.75 + q * 0.12, -0.2, -0.08, 0, 0, 0.44, 0.38, 0.035, M)); for (const sx of [-1, 1]) B.add(box, '#8e8f91', B.mat(sx * 0.21, 0.22 + q * 0.12, 0.18, 0, 0, 0, 0.018, 0.45, 0.018, M)); } }
+      else if (p.k === 'chair') { sh(0.9, 0.9); chair4(B, B.mat(0, 0, 0, 0, p.ry, 0, 1, 1, 1, M), '#2e3a50'); }
+      else if (p.k === 'ext') { B.add(G94.cyl, '#b3251c', B.mat(0, 0.45, 0, 0, 0, 0, 0.08, 0.55, 0.08, M)); B.add(G94.sph, '#b3251c', B.mat(0, 0.73, 0, 0, 0, 0, 0.08, 0.04, 0.08, M)); B.add(box, '#222', B.mat(0, 0.8, 0, 0, 0, 0, 0.05, 0.1, 0.05, M)); B.add(box, '#2a2a2a', B.mat(0.05, 0.82, 0, 0, 0, 0.5, 0.12, 0.015, 0.03, M)); }
     }
   }
   if (P.length) group.add(geoMesh(P, N, U, officeWallMat));
   for (const [m, pos, ry, w, h] of signs) { const s = new THREE.Mesh(new THREE.PlaneGeometry(w, h), m); s.position.set(...pos); s.rotation.y = ry; group.add(s); }
   B.emit(group);
+  if (GL.P.length) group.add(geoMesh(GL.P, GL.N, GL.U, blackGlass4));
+  if (D.P.length) group.add(decalMesh4(D));
 }
 // ---- the level's rules: uncovered windows, elevators to other floors, stairwells out ----
 let office4T = 0;
@@ -2393,7 +2552,8 @@ function triggers4(pos) {
   }
   return null;
 }
-function frame4(dt, xr) {
+function frame4(dt, xr, gl = 1) {
+  decalMat4.color.setScalar(gl);   // fixture lenses (and the grime decals) go dark with the lights
   office4T -= dt; if (office4T > 0) return;
   const t = triggers4(player.pos); if (!t) return;
   office4T = 1.5;
@@ -2410,11 +2570,11 @@ function frame4(dt, xr) {
 }
 function ding4() { if (!amb) return; const ctx = amb.ctx, t = ctx.currentTime; for (const [f, d] of [[1318.5, 0], [1046.5, 0.32]]) note94(ctx, ctx.destination, 'sine', 69 + 12 * Math.log2(f / 440), t + d, 1.2, 0.08); }
 LEVELS.level4 = {
-  name: 'LEVEL 4 — ABANDONED OFFICE', ceil: officeCeilTex, ceilEmit: officeCeilEmit,    // Backrooms wiki: empty open-plan offices, blacked-out windows, Almond Water coolers
+  name: 'LEVEL 4 — ABANDONED OFFICE', ceil: officeCeilTex, ceilEmit: null,     // the light fixtures are real 3D troffers (buildChunk4)    // Backrooms wiki: empty open-plan offices, blacked-out windows, Almond Water coolers
   fog: new THREE.Color('#b9bbb8'), fogNear: 16, fogFar: 70,                // dim, grey, overcast-daylight interior (the photo)
   hemiSky: '#e9eef2', hemiGround: '#6f7782', hemi: 0.62, ambCol: '#f2f4f6', amb: 0.2,
-  lightCol: '#eef2ff', light: 2.4, lightDist: 11, lightDecay: 2, sun: 0, flickRate: 0.015,
-  emissiveCol: '#ffffff', emissive: 0.55, water: false, office: true, env: 0.2, realFill: 0.75,
+  lightCol: '#eef2ff', light: 2.4, lightDist: 11, lightDecay: 2, sun: 0, flickRate: 0.015, lightY: 2.45,   // below the ceiling: troffers throw light down, they don't make a hotspot on the tiles
+  emissiveCol: '#000000', emissive: 0, water: false, office: true, env: 0.2, realFill: 0.75,
 };
 // quiet HVAC air + a faint mains hum — "calming, yet tinged with nostalgia and hollowness"
 let hvac4 = null;
@@ -2448,6 +2608,7 @@ if (REAL) {
 // image-based lighting: a neutral room environment indoors, a sky environment for Level 94
 const pmrem = new THREE.PMREMGenerator(renderer);
 const envIndoor = REAL ? pmrem.fromScene(new RoomEnvironment(), 0.04).texture : null;
+if (REAL) blackGlass4.envMap = envIndoor;   // the blacked-out glass reflects the room at full strength
 let envOutdoor = null;
 function outdoorEnv() {
   if (envOutdoor) return envOutdoor;
@@ -2647,7 +2808,7 @@ function frame(now) {
     for (let di = -LR; di <= LR; di++) for (let dj = -LR; dj <= LR; dj++) {
       if (li >= lightBudget) break;
       const i = ci + di, j = cj + dj, l = LIGHTS[li++];
-      l.position.set(i * CELL + CELL / 2, WALL_H - 0.15, j * CELL + CELL / 2);
+      l.position.set(i * CELL + CELL / 2, LV.lightY ?? WALL_H - 0.15, j * CELL + CELL / 2);
       let f = 1;
       if (hash(i, j, 21) < (LV.flickRate || 0.1)) { const n = Math.sin(time * 22 + i * 4.1) + Math.sin(time * 9.3 + j * 2.7); if (n > 1.55 || Math.random() < 0.02) f = 0.2; }
       l.intensity = LV.light * globalLight * f;
@@ -2671,7 +2832,7 @@ function frame(now) {
   scene.background = scene.fog.color;
   updateAmbience(!!LV.ocean, l7.phase === 'room', l7.under, globalLight, !!LV.flood);
   if (LV.terrain) frame94(dt, time, xr, wx, wz);
-  if (LV.office) frame4(dt, xr);
+  if (LV.office) frame4(dt, xr, globalLight);
   updateHvac4(!!LV.office);
   if (LV.flood && !l7.swim && speed > 0.4 && Math.floor(player.phase / Math.PI) !== Math.floor((player.phase - speed * dt * 2.6) / Math.PI)) wadeStep(speed);
   if (currentLevel === 'pool') {
@@ -2779,7 +2940,7 @@ function frame(now) {
 }
 setLevel(LEVELS[params.get('level')] ? params.get('level') : 'level0'); // set materials/lighting/fog before the first frame
 renderer.setAnimationLoop(frame);   // drives both the normal page and the VR headset session
-if (params.get('debug') === '1') window.__bk = { renderer, scene, setLevel, LIGHTS, player, applyRenderBudget, l7, keys, isTunnel, tunnelAxis, isRotunda, ROT, ROOM, CELL, STORY, poolShade, DAY94, h94, objects94, anims94, edge4, clearWin4, door4, doorKind4, R4 };   // ?debug=1: handles for profiling/screenshots
+if (params.get('debug') === '1') window.__bk = { renderer, scene, setLevel, LIGHTS, player, applyRenderBudget, l7, keys, isTunnel, tunnelAxis, isRotunda, ROT, ROOM, CELL, STORY, poolShade, DAY94, h94, objects94, anims94, edge4, clearWin4, door4, doorKind4, R4, buildChunk4, props4, hash };   // ?debug=1: handles for profiling/screenshots
 
 // for automated screenshots: ?entity=1 spawns one immediately
 if (params.get('entity') === '1') setTimeout(toggleEntity, 50);

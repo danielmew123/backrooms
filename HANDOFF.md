@@ -1,7 +1,7 @@
 # Backrooms game — handoff notes
 
 Paste this file into a new session, or tell it: *"read ~/backrooms-cam/HANDOFF.md first"*.
-State as of **2026-11-03**, latest game commit **`b93c808`** on `main`.
+State as of **2026-11-03** (after the "Level 4 realism" commit on `main`; see `git log`).
 
 ---
 
@@ -37,7 +37,7 @@ Each level is built to match its page on the Backrooms Wikidot wiki (and its pho
   - `gfx=fast|medium|ultra` (graphics tier; default `medium`)
   - `mode=fp|tp|selfie`, `screen=1`, `vhs=1`, `ui=1`, `help=1`, `seed=N`, `entity=1`
   - `xrscale=0.4–1` (VR resolution, default 0.7)
-  - `debug=1` exposes `window.__bk`, used by the headless screenshot tests
+  - `debug=1` exposes `window.__bk`, used by the headless screenshot tests (also `buildChunk4`, `props4`, `hash` for finding Level 4 props)
 
 ## Controls
 
@@ -115,6 +115,14 @@ Each level is built to match its page on the Backrooms Wikidot wiki (and its pho
    - Huge open halls, white plaster walls, blue-grey carpet, drop ceiling with slot vents.
    - Window walls with radiators and orange curtains; most windows are blacked out. **Walking up to a clear one is the trap**: you're thrown far away.
    - Almond Water coolers, vending machines, the odd '90s desk.
+   - **Realism pass (made it less cartoonish):**
+     - Clear windows use `windowViewMat`, a ShaderMaterial that ray-traces a parallax outdoor view: a lawn 4.5 m down, two tree belts (34 m and 80 m), and cloudy sky. Its colours are linear, so keep them low.
+     - Blacked-out windows are glossy glass (`blackGlass4`) with taped black paper behind, reflecting `envIndoor`.
+     - Pleated curtains (`curtainGeo4`) hang on a rod; radiators are sectional (`radiator4`).
+     - Every cell has a 3D troffer (frame + lens). The point lights sit at `LV.lightY = 2.45` to kill the ceiling hotspot.
+     - One decal mesh per chunk (`decalMat4`, atlas `decalTex4`, vertex RGBA colours) carries several things: contact-shadow strips at wall/floor and wall/ceiling joints (`aoBox4`), blob shadows under props, carpet and ceiling water stains, missing ceiling tiles (the fallen tile lies on the carpet), and the troffer lenses. `frame4` dims them with the lights.
+     - The carpet is 50 cm quarter-turn tiles composed from the Carpet016 photo (`carpetTiles4`).
+     - Swivel office chairs (`chair4`); outlets, light switches, thermostats, sprinklers and smoke detectors; lit vending-machine shelves.
    - **Elevators** go to "another floor" (a far-off part of the level); **STAIRS doors** lead to Level 0 or Level 2.
 5. **Level 7 "Thalassophobia"** (`level7`):
    - You spawn in a furnished room built **sideways into the ocean's concrete ceiling**.
@@ -145,7 +153,8 @@ The **entity** (E key) works on every level: it stares, creeps toward you, and g
   - VR keeps at most 4 point lights.
   - Chunks stream in one per frame.
   - **The PBR/photo-texture work has NOT been tested on the Quest.** If VR lags, try `gfx=fast`.
-- Approximate draw calls: Level 0 ~35, Poolrooms ~85, Level 4 ~120–195, Level 7 ~40, Level 94 ~225 (the grass adds one instanced mesh per chunk).
+- Approximate draw calls: Level 0 ~35, Poolrooms ~85, Level 4 ~160–250, Level 7 ~40, Level 94 ~225 (the grass adds one instanced mesh per chunk).
+- Level 4 is now ~130–180k visible triangles, up from ~50k; most of it is window furniture (radiator sections, curtains) on both faces of each window wall. If the Quest struggles there, the first cuts are the radiator sections and sprinklers in `buildChunk4`.
 
 ## Known gaps and ideas not done
 
