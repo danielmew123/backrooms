@@ -37,7 +37,7 @@ Each level is built to match its page on the Backrooms Wikidot wiki (and its pho
   After a change, hard-reload with **Cmd+Shift+R**.
 - **Hosted:** https://danielmew123.github.io/backrooms/ and https://danielmew123.github.io/
 - **URL options:**
-  - `level=level0|pool|level2|level4|level7|level94`
+  - `level=level0|level1|level2|level3|level4|level5|level6|level7|pool|level94`
   - `gfx=fast|medium|ultra` (graphics tier; default `medium`)
   - `mode=fp|tp|selfie`, `screen=1`, `vhs=1`, `ui=1`, `help=1`, `seed=N`, `entity=1`
   - `xrscale=0.4–1` (VR resolution, default 0.7)
@@ -46,7 +46,7 @@ Each level is built to match its page on the Backrooms Wikidot wiki (and its pho
 ## Controls
 
 - **Desktop:** WASD + Shift to move, mouse or arrow keys to look, click for pointer lock.
-  - **P** cycle level (Level 0 → Poolrooms → Pipe Dreams → Level 4 → Level 7 → Level 94)
+  - **P** cycle level (0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → Poolrooms → 94)
   - **C** camera (3rd person / selfie / first person), **F** webcam face on the character
   - **E** spawn or remove the entity, **Q** lights fail, **M** fluorescent hum
   - **V** VHS effect, **G** screen-fit mode, **U** hide overlay, **H** help
@@ -207,6 +207,53 @@ Every level was checked against its Backrooms **Wikidot** page and the page's ow
 The research notes, with source URLs and hex colours read off the images, were collected in the session; the main source pages are `http://backrooms-wiki.wikidot.com/level-0`, `level-2`, `level-4`, `level-7`, `level-37`, `level-94`, plus `manila-room` and `m-e-g-the-discovery-of-level-94`.
 
 ---
+
+
+## New levels and the canon exit network (2026-11-03, second pass)
+
+**Levels 1, 3, 5 and 6** are new, each built from its Wikidot page.
+- They share one framework: a `LEVELS.levelN` entry with `boxes` (cell layout; `tunnelBoxes` / `laneMaze`), `build` (props), `fix` (fixtures, used for light picking), `hook` (per-frame logic), `maps` and `real` (materials) and `wallTint`.
+- They live together in the block "Levels 1, 3, 5, 6".
+
+- **Level 1 "Habitable Zone":**
+  - Parking-lot/warehouse halls: square pillars, long discoloured wall runs with exit-signed gaps, single-tube fluorescents.
+  - White slab ceiling with pipes and red sprinklers; reflective puddles; crates on the floor and on blue racks.
+  - "Flickering" blackouts and pipe clangs.
+  - Walking about 140–250 m along x makes pipes and dials appear, then sends you to Level 2 (canon).
+- **Level 3 "Electrical Station":**
+  - Brick corridors in inconsistent colours (`wallTint`), conduit, black cable, electrical boxes, black-liquid pipes, dim flickering bulbs and tubes, crackles.
+  - Generator rooms (olive switchgear, copper busbars) and boiler rooms (brass tanks, sludge).
+  - Barred dead ends with OUT OF BOUNDS signs and M.E.G. hotspot signs.
+  - Dead-end elevators go to Level 4 or 5 (canon).
+- **Level 5 "Terror Hotel":**
+  - Mahogany and gold damask with walnut wainscot, a red/gold carpet, numbered doors with gold placards (a number atlas), brass sconces, portraits.
+  - The Beverly Room, with its chandelier and a Mahjong table.
+  - Smooth jazz (`jazz5`).
+  - Doors you walk into:
+    - Elevators: floors 1–12 elsewhere in the hotel, 13+ and you "disappear" far away.
+    - STAIRS → Level 4.
+    - BOILER ROOM → Level 6.
+- **Level 6 "Lights Out":**
+  - Tight smooth-concrete hallways in near-black fog. You see about 4 m; that visibility is a game choice, since canon says no light works.
+  - Silence with hallucinated scuttling, breathing and whispers.
+  - A 3D (HRTF) wave sound leads you to the stairwell at `S6`, which goes to Level 7.
+
+**Exits (all canon):**
+- 0 → 1 through flickering walls (`flick0`, `hook0`).
+- 1 → 2 by walking far.
+- 2 → 1, 3 or 4 through the plated doors.
+- 3 → 4 or 5 by elevator.
+- 4 → stairs to 5 or 6, elevators to 3 or 5.
+- 5 → 4, 6, or elsewhere in the hotel.
+- 6 → 7 down the wave stairwell.
+- 7 → 6 up the room's staircase.
+- 94 → 7 through a flooded house.
+
+**Performance:**
+- Adaptive render resolution (`adaptRes`; `?res=N` pins it).
+- 6 desktop lights; lights keep their fixture and fade in (`stableSlots`).
+- Level 0 uses 4 soft, wide lights so no bright pools pop up.
+- A level with `env: 0` renders black in the realistic tier, so keep `env` above 0.
 
 ## Graphics tiers and performance (important)
 
