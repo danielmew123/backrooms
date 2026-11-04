@@ -206,7 +206,7 @@ function tileDraw(baseR, baseG, baseB, groutA, N, caustics) {
     for (let i = 0; i <= N; i++) { g.beginPath(); g.moveTo(i * s, 0); g.lineTo(i * s, h); g.stroke(); g.beginPath(); g.moveTo(0, i * s); g.lineTo(w, i * s); g.stroke(); }
   };   // textures are ONLY tiles — no baked light; caustics are projected separately
 }
-const poolTileTex  = canvasTex(512, 512, tileDraw(235, 233, 224, 1, 16, false)); // bright white-cream wall/deck tiles
+const poolTileTex  = canvasTex(512, 512, tileDraw(232, 227, 200, 1, 16, false)); // cream tiles (wiki renders ~#E6E1C6 lit)
 const poolBasinTex = canvasTex(512, 512, tileDraw(150, 206, 214, 1, 12));         // light teal underwater tiles — glow + clear water reads luminous teal
 const poolColTex   = poolTileTex.clone(); poolColTex.needsUpdate = true; poolColTex.wrapS = poolColTex.wrapT = THREE.RepeatWrapping; poolColTex.repeat.set(1.4, 2.5);  // round pillar: ~3.6 m around, 6.3 m tall
 // plain tiled ceiling — Level 37 has no visible light fixtures at all
@@ -244,13 +244,13 @@ const poolCausticTex = causticTex(128); poolCausticTex.repeat.set(1.3, 1.3);    
 // Poolrooms tile materials — these are plain tiles, nothing else painted on
 // (vertexColors = the baked light/dark field: most rooms bright, some fall completely dark — see poolShade)
 const poolTileMat  = new LMat({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true });
-const poolDeckMat  = new LMat({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true, color: '#e6ece4' });  // flooded floor
+const poolDeckMat  = new LMat({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true, color: '#e2dcbe' });  // flooded floor
 const poolCeilMat  = new LMat({ map: poolCeilTex, side: THREE.DoubleSide, vertexColors: true });
-const poolDeepMat  = new LMat({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true, color: '#7fa39b' });   // deep pits read darker
-const poolBasinMat = new LMat({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true, color: '#bcd3cb' });  // pit floors/walls (no glow — the light comes from above)
+const poolDeepMat  = new LMat({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true, color: '#7f9a7a' });   // deep pits read darker
+const poolBasinMat = new LMat({ map: poolTileTex, side: THREE.DoubleSide, vertexColors: true, color: '#b6c7a4' });  // pit floors/walls (no glow — the light comes from above)
 const poolColMat   = new LMat({ map: poolColTex });
 // additive caustic LIGHT, drawn only on the submerged pool floor
-const poolCausticMat = new THREE.MeshBasicMaterial({ map: poolCausticTex, color: 0x9fdccd, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, vertexColors: true, toneMapped: false, side: THREE.DoubleSide }); // bright cyan caustics
+const poolCausticMat = new THREE.MeshBasicMaterial({ map: poolCausticTex, color: 0xb4dcb0, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, vertexColors: true, toneMapped: false, side: THREE.DoubleSide }); // bright cyan caustics
 const POOL_DEPTH = 1.3, POOL_WATER = 0.32; // Level 37 is FLOODED: tiled floor at y=0 under shin-deep water everywhere; pits sink below
 // light/dark field: "light falls at irregular angles, and some areas are completely dark" — smooth value
 // noise over the room grid, baked into vertex colours (0.07 = pitch dark .. 1 = bright)
@@ -482,12 +482,12 @@ const poolWater = new Water(new THREE.BufferGeometry(), {
   textureWidth: 256, textureHeight: 256,   // pool mirror reflection is an extra full-scene pass per frame; 256 is plenty for rippled water and ~4x cheaper than 512
   waterNormals: poolNormalTex,
   sunDirection: new THREE.Vector3(0.25, 1.0, 0.1).normalize(),
-  sunColor: 0x55564f, waterColor: 0x2c7c6e, distortionScale: 0.35, fog: true, alpha: 0.5,  // clear, lukewarm blue-green; barely rippling  // luminous teal pool water (Escape-the-Backrooms Poolrooms look)
+  sunColor: 0x55564f, waterColor: 0x2f6e50, distortionScale: 0.35, fog: true, alpha: 0.5,   // green (wiki renders #2F6E50 .. #8CC8A4)  // clear, lukewarm blue-green; barely rippling  // luminous teal pool water (Escape-the-Backrooms Poolrooms look)
 });
 poolWater.rotation.x = -Math.PI / 2; poolWater.position.y = POOL_WATER;
 poolWater.material.transparent = true;
 poolWater.material.uniforms.size.value = 34.0;  // "undisturbed yet shows a minimal, constant rippling"
-{ const under = new THREE.Mesh(new THREE.PlaneGeometry(240, 240), new THREE.MeshBasicMaterial({ color: '#5c9f92', side: THREE.BackSide, fog: true, transparent: true, opacity: 0.85 })); under.position.z = -0.01; poolWater.add(under); }
+{ const under = new THREE.Mesh(new THREE.PlaneGeometry(240, 240), new THREE.MeshBasicMaterial({ color: '#6aa684', side: THREE.BackSide, fog: true, transparent: true, opacity: 0.85 })); under.position.z = -0.01; poolWater.add(under); }
 poolWater.renderOrder = 2; poolWater.visible = false;
 scene.add(poolWater);
 let waterDirty = true, waterChunkSig = '';
@@ -586,8 +586,8 @@ const LEVELS = {
   },
   pool: {
     name: 'POOLROOMS', ceil: poolCeilTex, ceilEmit: null,                 // Level 37 "Sublimity" (Backrooms wiki)
-    fog: new THREE.Color('#bfc8c1'), fogNear: 10, fogFar: 64,          // light, dreamlike haze
-    hemiSky: '#fff8ec', hemiGround: '#c2d2ca', hemi: 0.75, ambCol: '#eef2ea', amb: 0.22,  // bright, sourceless daylight (dark rooms come from the baked shade field)
+    fog: new THREE.Color('#aab4a2'), fogNear: 10, fogFar: 64,          // light, dreamlike green-grey haze (wiki renders ~#A8B2A2)
+    hemiSky: '#fff6e2', hemiGround: '#bccab0', hemi: 0.75, ambCol: '#eef0e2', amb: 0.22,  // bright, sourceless daylight (dark rooms come from the baked shade field)
     lightCol: '#ffffff', light: 0, lightDist: 14, lightDecay: 2, sun: 1.15, sunCol: '#fff3dc',  // no fixtures; a shadowless directional "daylight" so faces shade apart
     emissiveCol: '#000000', emissive: 0, water: true, flood: true, env: 0.22, realEnv: 0.16, realFill: 0.45,
   },
@@ -1297,6 +1297,7 @@ function buildChunk(cx, cz, st = 0) {
         if (isTunnel(rI, rJ)) { const ax = tunnelAxis(rI, rJ), c = (ax === 0 ? rJ : rI) * ROOM * CELL + ROOM * CELL / 2;
           if ((ax === 0 ? loc(j) : loc(i)) === 1) { const s0 = ax === 0 ? x0 : z0;
             addTube(tP, tN, tU, ax, c, s0, s0 + CELL);
+            for (const q of [1.25, 3.75]) addTube(tP, tN, tU, ax, c, s0 + q - 0.15, s0 + q + 0.15, 0.14);   // ring ribs (wiki render)
             for (const sr of [s0 + 1.1, s0 + 3.6]) addTube(tP, tN, tU, ax, c, sr, sr + 0.28, 0.13);   // concentric ribs receding down the tube
           } } }
       if (isDeep(i, j)) {                                                       // a pit under the flood (some with stairs straight down into it)
@@ -1397,6 +1398,7 @@ function buildChunk(cx, cz, st = 0) {
       }
     }
   }
+  if (currentLevel === 'pool') poolRails(group, i0, j0, i1, j1);
   group.traverse(o => { if (o.isMesh && !o.userData.noShadow) { o.castShadow = true; o.receiveShadow = true; } });  // real shadows on walls/pipes/columns/houses
   if (st) group.position.set(-SOFF * CELL, STORY, -SOFF * CELL);
   scene.add(group);
@@ -1491,6 +1493,26 @@ function exit2(pos) {
     if (Math.abs(along) < 0.45 && sg * across < 0.42) return true;
   }
   return false;
+}
+const railGeoP = new THREE.CylinderGeometry(0.022, 0.022, 1, 10);
+function poolRails(group, i0, j0, i1, j1) {
+  const M = [], m4 = (x, y, z, rx, rz, len) => { _pe.set(rx, 0, rz); _pq.setFromEuler(_pe); _pp.set(x, y, z); _ps.set(1, len, 1); M.push(_pm.compose(_pp, _pq, _ps).clone()); };
+  for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) {
+    if (hash(rID(i), rID(j), 390) > 0.4 || isDeep(i, j)) continue;                // some rooms have rails; not over the pits
+    for (const bx of cellBoxes(i, j)) {
+      const [x0, x1, y0, y1, z0, z1] = bx; if (y0 > 0.01 || y1 < 2 || bx[6]) continue;
+      const alongX = x1 - x0 > z1 - z0, len = (alongX ? x1 - x0 : z1 - z0) - 0.3; if (len < 1.2) continue;
+      for (const sd of [-1, 1]) {
+        const off = sd * ((alongX ? z1 - z0 : x1 - x0) / 2 + 0.11), cx = (x0 + x1) / 2 + (alongX ? 0 : off), cz = (z0 + z1) / 2 + (alongX ? off : 0), Y = POOL_WATER + 0.62;
+        if (isDeep(Math.floor(cx / CELL), Math.floor(cz / CELL))) continue;
+        m4(cx, Y, cz, alongX ? 0 : Math.PI / 2, alongX ? Math.PI / 2 : 0, len);                                   // the rail
+        const n = Math.max(2, Math.round(len / 1.6));
+        for (let q = 0; q <= n; q++) { const u = -len / 2 + len * q / n; m4(cx + (alongX ? u : 0), Y / 2, cz + (alongX ? 0 : u), 0, 0, Y); }   // posts into the water
+      }
+    }
+  }
+  if (!M.length) return;
+  const im = new THREE.InstancedMesh(railGeoP, chromeMat, M.length); M.forEach((m, q) => im.setMatrixAt(q, m)); im.computeBoundingSphere(); im.userData.noShadow = true; group.add(im);
 }
 function updateChunks(px, pz) {
   const ccx = Math.floor(px / (CELL * CHUNK)), ccz = Math.floor(pz / (CELL * CHUNK));
@@ -2768,8 +2790,9 @@ function updateHvac4(on) {
 
 // ---------- photographic materials for everything else ----------
 if (REAL) {
-  for (const m of [poolTileMat, poolDeckMat, poolDeepMat, poolBasinMat, poolCeilMat]) photo(m, 'Tiles107', 4, 4, { rough: 0.85 });   // real glazed tile, grout in the normal map
-  photo(poolColMat, 'Tiles107', 5.6, 10, { rough: 0.85 });
+  for (const m of [poolTileMat, poolDeckMat, poolDeepMat, poolBasinMat, poolCeilMat]) photo(m, 'Tiles107', 4, 4, { rough: 0.85 });
+  poolTileMat.color.set('#eee8cc'); poolCeilMat.color.set('#e6e0c4');   // cream glazed tile (wiki renders), not paper white   // real glazed tile, grout in the normal map
+  photo(poolColMat, 'Tiles107', 5.6, 10, { rough: 0.85, color: '#eee8cc' });
   for (const m of [pipeMat, pipeMat2]) photo(m, 'Metal021', 1, 4, { keepMap: true, ns: 0.6, metal: 0.05 });   // surface relief only; each pipe's own paint/lagging colour comes from its instance colour
   photo(seaCeilMat, 'Concrete031', 0.4, 0.4, { color: '#9a978e' });
   photo(rockMat, 'Rock058', 1, 1, { color: '#8d8f93' });
