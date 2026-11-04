@@ -65,7 +65,7 @@
   <div><kbd>E</kbd>spawn / remove the entity</div>
   <div><kbd>Q</kbd>lights fail &nbsp; <kbd>P</kbd>cycle level: Level 0 → Poolrooms → Pipe Dreams → Abandoned Office (4) → Thalassophobia → Motion (94)</div>
   <div>Level 4: stay away from the uncovered windows; elevators go to other floors, STAIRS doors lead out</div>
-  <div>Level 94: <kbd>N</kbd> day ↔ night (VR: A) — hide from the Animations at night; red doors lead elsewhere</div>
+  <div>Level 94: <kbd>N</kbd> day ↔ night (VR: A) — hide from the Animations at night; flooded houses lead elsewhere</div>
   <div>Level 7: walk into the doorway — its gravity pulls you down into the ocean</div>
   <div><kbd>M</kbd>fluorescent hum (your speakers only)</div>
   <div><kbd>V</kbd>VHS effect on/off &nbsp; <kbd>U</kbd>hide overlay</div>
@@ -1904,6 +1904,10 @@ const grassTex = canvasTex(512, 512, (g, w, h) => {
   }
 });
 const grassMat = new LMat({ map: grassTex, vertexColors: true });
+grassMat.onBeforeCompile = sh => {     // mown stripes ~3 m wide across the hills (wiki art)
+  sh.vertexShader = 'varying vec2 vStripe;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vStripe = (modelMatrix * vec4(transformed, 1.0)).xz;');
+  sh.fragmentShader = 'varying vec2 vStripe;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n { float sp = sin(dot(vStripe, vec2(0.6, 0.8)) * 1.0472); diffuseColor.rgb *= 1.0 + 0.15 * smoothstep(-0.25, 0.25, sp) - 0.075; }');
+};
 // painted clapboard siding, shingles, foliage and asphalt (tinted per object by vertex colour)
 const sidingTex = canvasTex(256, 256, (g, w, h) => {
   g.fillStyle = '#f2efe8'; g.fillRect(0, 0, w, h);
@@ -1980,7 +1984,7 @@ function houseLots94(cx, cz) {
 function objects94(cx, cz) {
   const key = cx + ',' + cz; if (obj94Cache.has(key)) return obj94Cache.get(key);
   const S = T94.CH, x0 = cx * S, z0 = cz * S, inC = (x, z) => x >= x0 && x < x0 + S && z >= z0 && z < z0 + S, out = [], ccx = x0 + S / 2, ccz = z0 + S / 2;
-  const H = k => hash(cx, cz, k), PAL = ['#f1e6c8', '#f3ddc0', '#e9e3b4', '#d9e6cf', '#f0d6d0', '#e8e1d6'];
+  const H = k => hash(cx, cz, k), PAL = ['#f2e4c2', '#f0dfba', '#f4e8cc', '#ece0bf', '#efe2c6'];   // cream (wiki art)
   // town: houses on lots along each road, facing it, with picket fences, lamps, the odd car
   ROADS94.forEach((rd, k) => {
     const tc = ccx * rd.dx + ccz * rd.dz;
@@ -2045,7 +2049,9 @@ function addHouse94(B, o) {
     for (const sx of [-1, 1]) { win(sx * w * 0.27, fy, d / 2 + 0.02, 0, true); win(sx * w * 0.27, fy, -d / 2 - 0.02, 0, false); }
     win(w / 2 + 0.02, fy, 0, Math.PI / 2, false); win(-w / 2 - 0.02, fy, 0, Math.PI / 2, false);
   }
-  B.add(box, o.portal ? '#b3231f' : '#6b4a33', B.mat(0, 0.98, d / 2 + 0.03, 0, 0, 0, 0.9, 1.9, 0.08, M));    // door (red ones lead elsewhere)
+  B.add(box, '#6b4a33', B.mat(0, 0.98, d / 2 + 0.03, 0, 0, 0, 0.9, 1.9, 0.08, M));                              // door
+  if (o.portal) { B.add(box, '#4f7686', B.mat(0, 0.235, d / 2 + 0.75, 0, 0, 0, 1.7, 0.02, 1.9, M)); B.add(box, '#4f7686', B.mat(0, 0.01, d / 2 + 2.1, 0, 0, 0, 2.6, 0.02, 1.6, M));   // a flooded house: water spilling out under the door, over the steps
+    B.win(box, B.mat(0, 0.5, d / 2 + 0.072, 0, 0, 0, 0.82, 0.04, 0.01, M)); }
   B.add(box, trim, B.mat(0, 1.98, d / 2 + 0.05, 0, 0, 0, 1.15, 0.12, 0.08, M)); for (const sx of [-1, 1]) B.add(box, trim, B.mat(sx * 0.52, 0.98, d / 2 + 0.05, 0, 0, 0, 0.12, 1.95, 0.08, M));
   B.lamp(G94.sph, B.mat(0.32, 0.98, d / 2 + 0.09, 0, 0, 0, 0.04, 0.04, 0.04, M));                           // brass knob
   B.add(box, '#cfc6b0', B.mat(0, 0.08, d / 2 + 0.55, 0, 0, 0, 1.4, 0.16, 1.0, M)); B.add(box, '#c4baa2', B.mat(0, 0.22, d / 2 + 0.3, 0, 0, 0, 1.2, 0.14, 0.5, M));   // steps
@@ -2072,8 +2078,7 @@ function addProp94(B, o, group) {
   const box = G94.box, cyl = G94.cyl;
   if (o.k === 'house') addHouse94(B, o);
   else if (o.k === 'car') addCar94(B, o, false);
-  else if (o.k === 'van') { addCar94(B, o, true); for (const s of [-1, 1]) { const m = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.65), vanMat), lx = s * 1.02, lz = -0.5;   // "ALMOND MILK" on both sides
-      m.position.set(o.x + lx * Math.cos(o.rot) + lz * Math.sin(o.rot), o.y + 1.6, o.z - lx * Math.sin(o.rot) + lz * Math.cos(o.rot)); m.rotation.y = o.rot + s * Math.PI / 2; group.add(m); } }
+  else if (o.k === 'van') addCar94(B, o, true);                                          // a plain milk van (wiki: "milk vans, filled with Almond Milk")
   else if (o.k === 'tree') { const s = o.s, hk = k => hash(Math.floor(o.x * 3), Math.floor(o.z * 3), k);
     B.add(cyl, '#5e4430', B.mat(o.x, o.y + 1.4 * s, o.z, 0, 0, 0, 0.24 * s, 2.8 * s, 0.24 * s)); B.add(cyl, '#5e4430', B.mat(o.x + 0.4 * s, o.y + 2.7 * s, o.z, 0, 0, -0.6, 0.1 * s, 1.4 * s, 0.1 * s));
     for (let q = 0; q < 7; q++) { const a = q * 0.9 + hk(q) * 2, r = q ? (0.9 + hk(q + 9) * 0.8) * s : 0, y = (3.8 + (q ? (hk(q + 19) - 0.3) * 1.6 : 0.3)) * s, R = (q ? 1.1 + hk(q + 29) * 0.6 : 1.9) * s;
@@ -2266,7 +2271,7 @@ function los94(ax, az, bx, bz) {
   for (let k = 1; k < n; k++) { const t = k / n; if (inHouse94(ax + (bx - ax) * t, az + (bz - az) * t, list)) return false; }
   return true;
 }
-function doors94(pos) {     // the red doors lead out of Level 94 (wiki: "certain houses ... lead to Levels 7, 9, and 53")
+function doors94(pos) {     // flooded houses lead out of Level 94 (wiki: "some houses" lead to Levels 7, 9 and 53; the M.E.G. log's Level 7 house was flooded)
   for (const o of near94(pos.x, pos.z)) {
     if (o.k !== 'house' || !o.portal) continue;
     const fx = o.x + Math.sin(o.rot) * (o.d / 2 + 0.4), fz = o.z + Math.cos(o.rot) * (o.d / 2 + 0.4);
@@ -2336,6 +2341,18 @@ function note94(ctx, out, type, midi, t, dur, g) {
   e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(g, t + 0.012); e.gain.exponentialRampToValueAtTime(0.0008, t + dur);
   o.connect(e).connect(out); o.start(t); o.stop(t + dur + 0.05);
 }
+function laugh94(vol) {          // a burst of "ha-ha-ha" from somewhere around you (wiki: strange laughter from all around at night)
+  if (!amb) return; const ctx = amb.ctx, t0 = ctx.currentTime + 0.05, pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null, out = ctx.createGain(), n = 4 + Math.floor(Math.random() * 5), f0 = 150 + Math.random() * 140;
+  out.gain.value = vol; if (pan) { pan.pan.value = Math.random() * 2 - 1; out.connect(pan).connect(ctx.destination); } else out.connect(ctx.destination);
+  const f1 = ctx.createBiquadFilter(), f2 = ctx.createBiquadFilter(); f1.type = f2.type = 'bandpass'; f1.frequency.value = 780; f2.frequency.value = 1250; f1.Q.value = f2.Q.value = 4; f1.connect(out); f2.connect(out);
+  for (let k = 0; k < n; k++) {
+    const t = t0 + k * (0.15 + Math.random() * 0.05), o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(f0 * (1.08 - k * 0.025), t); o.frequency.exponentialRampToValueAtTime(f0 * (0.92 - k * 0.025), t + 0.12);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 0.02); g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+    o.connect(g); g.connect(f1); g.connect(f2); o.start(t); o.stop(t + 0.15);
+  }
+}
+let nextLaugh94 = 0;
 function tune94(vol) {
   if (!amb || vol < 0.02) return;
   const ctx = amb.ctx, t0 = ctx.currentTime + 0.05, b8 = 0.2, out = ctx.createGain(), lp = ctx.createBiquadFilter(), hp = ctx.createBiquadFilter();
@@ -2377,6 +2394,7 @@ function frame94(dt, time, xr, wx, wz) {
     if (key !== shadowKey) { shadowKey = key; renderer.shadowMap.needsUpdate = true; }
   }
   // the siren poles play now and then — only by day ("music from the siren poles stops completely" at night)
+  if (night && amb && performance.now() > nextLaugh94) { laugh94(0.05 + Math.random() * 0.09); nextLaugh94 = performance.now() + 4000 + Math.random() * 9000; }
   if (!night && amb && performance.now() > nextTune94) { tune94(0.55 * Math.max(0.06, 1 - Math.hypot(wx, wz) / 170)); nextTune94 = performance.now() + 35000 + Math.random() * 45000; }
   if (night !== wasNight94) { wasNight94 = night; if (night) toast('NIGHT — the Animations are out'); else toast('DAY'); }
   const res = updateAnims94(dt, night, player.pos.x, player.pos.z, player.yaw + (xr ? 0 : 0));
@@ -2805,7 +2823,7 @@ if (REAL) {
   photo(roomWallMat, 'Wallpaper001A', 2, 2, { keepMap: true, ns: 0.6 });
   photo(officeWallMat, 'PaintedPlaster017', 2, 2, { keepMap: true, ns: 0.5 });
   photo(grassMat, 'Grass005', 4, 4, { color: '#d8e8c0' });
-  photo(sidingMat, 'WoodSiding008', 1, 1); sidingMat.color.setScalar(1.75);   // the greyscale photo is darker than paint: lift it so the pastel tints read
+  photo(sidingMat, 'WoodSiding008', 1, 1); sidingMat.color.setRGB(2.55, 2.28, 1.8);   // warm lift: the greyscale photo was greying the cream paint   // the greyscale photo is darker than paint: lift it so the pastel tints read
   photo(roofMat94, 'RoofingTiles013A', 0.3, 0.3); roofMat94.color.setScalar(2.2);
   photo(roadMat94, 'Asphalt033', 1, 2.5, { color: '#c4c4c4' });
   toonMat.roughness = 0.75; leafMat.roughness = 0.9;
