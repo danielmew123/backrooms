@@ -1706,6 +1706,8 @@ function initAmbience() {
     const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 430; bp.Q.value = 0.8;
     noise().connect(bp).connect(lapG).connect(out);
     for (const [f, a] of [[0.11, 0.11], [0.29, 0.07]]) { const o = ctx.createOscillator(); o.frequency.value = f; const g = ctx.createGain(); g.gain.value = a; o.connect(g).connect(lapG.gain); o.start(); }
+    { const wl = ctx.createBiquadFilter(); wl.type = 'lowpass'; wl.frequency.value = 900; const wg = ctx.createGain(); wg.gain.value = 0.14;   // slow rolling wash of waves (Level 6 wiki: you find Level 7 by "the faint sound of waves")
+      noise().connect(wl).connect(wg).connect(out); const o = ctx.createOscillator(); o.frequency.value = 0.12; const og = ctx.createGain(); og.gain.value = 0.12; o.connect(og).connect(wg.gain); o.start(); }
     const rl = ctx.createBiquadFilter(); rl.type = 'lowpass'; rl.frequency.value = 110; const rg = ctx.createGain(); rg.gain.value = 0.55;
     noise().connect(rl).connect(rg).connect(out);
     const dl = ctx.createDelay(1); dl.delayTime.value = 0.27; const fb = ctx.createGain(); fb.gain.value = 0.42; const dlp = ctx.createBiquadFilter(); dlp.type = 'lowpass'; dlp.frequency.value = 2200;
