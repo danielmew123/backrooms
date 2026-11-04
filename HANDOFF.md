@@ -1,7 +1,7 @@
 # Backrooms game — handoff notes
 
 Paste this file into a new session, or tell it: *"read ~/backrooms-cam/HANDOFF.md first"*.
-State as of **2026-11-03** (after the "Level 4 realism" commit on `main`; see `git log`).
+State as of **2026-11-03** (after the second Level 4 realism commit on `main`, "real photo window views + CC0 models"; see `git log`).
 
 ---
 
@@ -21,9 +21,13 @@ Each level is built to match its page on the Backrooms Wikidot wiki (and its pho
   - `postprocessing/{EffectComposer, RenderPass, GTAOPass, UnrealBloomPass, OutputPass, ShaderPass, MaskPass, Pass}.js`
   - `shaders/{GTAO, PoissonDenoise, Copy, LuminosityHighPass, Output}Shader.js`
   - `math/SimplexNoise.js`
+  - `loaders/GLTFLoader.js`, `utils/BufferGeometryUtils.js` (Level 4 models)
 - **`textures/`** holds photographic CC0 PBR texture sets from **ambientCG** (`<id>_c.jpg` colour, `_n.jpg` normal, `_r.jpg` roughness, 1024 px), about 11 MB.
   Sets: Asphalt033, Bark014, Carpet012, Carpet016, Concrete031, Concrete046, Grass005, Metal021, OfficeCeiling001, PaintedPlaster017, PaintedWood005, Planks037A, Rock058, RoofingTiles013A, Tiles107, Wallpaper001A, WoodSiding008.
+  Level 4 also uses Fabric062 (curtains, upholstery) and Wood092 (doors), plus `textures/sky/noon_grass.jpg`, a 4096×2048 tonemapped panorama of a sunny park (Poly Haven, CC0).
   WoodSiding008 and RoofingTiles013A colour maps are greyscale on purpose, so each house can be tinted its own colour.
+- **`models/`** holds CC0 glTF models from Poly Haven (1k textures): `metal_office_desk`, `SchoolChair_01`, `wall_clock`, `fire_alarm`, `WetFloorSign_01`.
+  Find more with `https://api.polyhaven.com/assets?t=models` and download URLs from `https://api.polyhaven.com/files/<id>` (`gltf.1k`).
 - `.nojekyll` lets GitHub Pages serve `node_modules`.
 
 ## How to run
@@ -116,7 +120,9 @@ Each level is built to match its page on the Backrooms Wikidot wiki (and its pho
    - Window walls with radiators and orange curtains; most windows are blacked out. **Walking up to a clear one is the trap**: you're thrown far away.
    - Almond Water coolers, vending machines, the odd '90s desk.
    - **Realism pass (made it less cartoonish):**
-     - Clear windows use `windowViewMat`, a ShaderMaterial that ray-traces a parallax outdoor view: a lawn 4.5 m down, two tree belts (34 m and 80 m), and cloudy sky. Its colours are linear, so keep them low.
+     - Clear windows use `windowViewMat`, a ShaderMaterial that projects a real photo panorama (`noon_grass`) onto the lawn 4.5 m down plus a 38 m sky dome centred 12 m outside each window (a "ground-projected skybox"), so the view has parallax. All the window views in a chunk are one mesh; the window centre comes in as the `wc` vertex attribute.
+     - Real models: `loadModels4()` loads them once, `prepModel4()` bakes each to one mesh per material, `placeModel4()` records placements, and `instModel4()` makes one `InstancedMesh` per chunk and material. `lod4()` hides copies beyond `LOD4[k]` metres (×0.65 in VR). Their geometry is marked `userData.shared`, so chunk unloading doesn't dispose it.
+     - Hand-built props use `bk4()` buckets with real materials: `paintMat4` (semi-gloss paint/plastic), `metalMat4` (steel), `fabricMat4`, `woodMat4`, all with world-projected UVs and per-vertex tints. In `buildChunk4`, `B.add` is redirected to paint; use `B.fab`, `B.wood`, `B.metal` for the others.
      - Blacked-out windows are glossy glass (`blackGlass4`) with taped black paper behind, reflecting `envIndoor`.
      - Pleated curtains (`curtainGeo4`) hang on a rod; radiators are sectional (`radiator4`).
      - Every cell has a 3D troffer (frame + lens). The point lights sit at `LV.lightY = 2.45` to kill the ceiling hotspot.
@@ -153,8 +159,9 @@ The **entity** (E key) works on every level: it stares, creeps toward you, and g
   - VR keeps at most 4 point lights.
   - Chunks stream in one per frame.
   - **The PBR/photo-texture work has NOT been tested on the Quest.** If VR lags, try `gfx=fast`.
-- Approximate draw calls: Level 0 ~35, Poolrooms ~85, Level 4 ~160–250, Level 7 ~40, Level 94 ~225 (the grass adds one instanced mesh per chunk).
-- Level 4 is now ~130–180k visible triangles, up from ~50k; most of it is window furniture (radiator sections, curtains) on both faces of each window wall. If the Quest struggles there, the first cuts are the radiator sections and sprinklers in `buildChunk4`.
+- Approximate draw calls: Level 0 ~35, Poolrooms ~85, Level 4 ~100–230, Level 7 ~40, Level 94 ~225 (the grass adds one instanced mesh per chunk).
+- Level 4 shows about 180–440k triangles per frame by `renderer.info` (about 50k before the realism passes). Most come from window furniture (radiators, curtains) on both faces of each window wall, and from the stacked school chairs (5k triangles each).
+  If the Quest struggles there, the first cuts are: lower `LOD4`, fewer radiator sections, and fewer curtain folds (`curtainGeo4` `n`).
 
 ## Known gaps and ideas not done
 
