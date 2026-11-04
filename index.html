@@ -582,7 +582,7 @@ const LEVELS = {
     hemiSky: '#e4e0c2', hemiGround: '#8a8160', hemi: 0.62, ambCol: '#d8cfab', amb: 0.3, // flat fill (raised to replace the removed IBL — this is free light, no fill-rate cost) while keeping the fixtures' falloff visible
     lightCol: '#fff4dc', light: 2.1, lightDist: 24, lightDecay: 1, sun: 0, flickRate: 0.03, maxLights: 4, lightY: 1.9,   // soft & even (no bright pools under each panel)  // REAL fluorescent fixtures: point lights with physical inverse-square falloff
     fixtureLights: true, fixtureSeed: 71, fixtureRate: 0.16, fixtureGeo: stripGeo, fixtureMat: stripMat, fixtureY: WALL_H - 0.03,  // sparse: a working fluorescent tube only every so often
-    emissiveCol: '#cfc68e', emissive: 0.22, water: false, env: 0.1, hook: (dt, time) => hook0(dt, time),   // light bouncing off the carpet/walls keeps the flat cream ceiling from going grey
+    emissiveCol: '#cfc68e', emissive: 0.22, water: false, env: 0.1, hook: (dt, time) => { hook0(dt, time); hookManila(dt, time); },   // light bouncing off the carpet/walls keeps the flat cream ceiling from going grey
   },
   pool: {
     name: 'POOLROOMS', ceil: poolCeilTex, ceilEmit: null,                 // Level 37 "Sublimity" (Backrooms wiki)
@@ -620,7 +620,7 @@ function realSurfaces(name) {
   for (const m of [floorMat, wallMat, ceilMat]) { m.normalMap = null; m.roughnessMap = null; m.color.set('#ffffff'); m.roughness = 1; m.metalness = 0; m.needsUpdate = true; }
   if (name === 'level0') {                                                    // damp mono-yellow carpet, papered walls, drop-ceiling tiles
     photo(floorMat, 'Carpet016', 160, 160, { color: '#d6c4a0' });   // tan Berber: "closer to a brownish beige" (wiki)
-    photo(wallMat, 'Wallpaper001A', 2, 2, { keepMap: true, ns: 0.6 }); photo(wallDotMat, 'Wallpaper001A', 2, 2, { keepMap: true, ns: 0.5 });
+    photo(wallMat, 'Wallpaper001A', 2, 2, { keepMap: true, ns: 0.6 }); photo(wallDotMat, 'Wallpaper001A', 2, 2, { keepMap: true, ns: 0.5 }); photo(redWallMat, 'Wallpaper001A', 2, 2, { keepMap: true, ns: 0.8 }); photo(manilaMat, 'Wallpaper001A', 2, 2, { keepMap: true, ns: 0.4 });
     photo(ceilMat, 'PaintedPlaster017', 160, 160, { keepMap: true, ns: 0.08 });   // flat painted cream ceiling, as in the photo (no tile grid)
   } else if (name === 'level2') {                                             // bare, stained concrete
     photo(floorMat, 'Concrete046', 110, 110, { color: '#77705f' });
@@ -635,6 +635,7 @@ function realSurfaces(name) {
 }
 function setLevel(name) {
   const L = LEVELS[name]; if (!L || name === currentLevel) return; LV = L; currentLevel = name;
+  if (typeof smiler !== 'undefined') smiler.visible = false;
   // Level 0 draws walls/floor/ceiling with the shared mats + global planes; Poolrooms builds its
   // own tiled geometry per chunk, so here we only need its ceiling + lighting + fog.
   if (name === 'level4') { floorMat.map = officeCarpetTex; floorMat.normalMap = null; floorMat.needsUpdate = true; officeCarpetTex.repeat.set(PLANE / CELL, PLANE / CELL); }
@@ -678,12 +679,13 @@ function setLevel(name) {
 const spawnOpen = (i, j) => Math.abs(i) <= 1 && Math.abs(j) <= 1; // keep spawn clear
 function zoneOf(i, j) {
   const r = hash(Math.floor(i / 5), Math.floor(j / 5), 7);
-  return r < 0.08 ? 'pillars' : r < 0.14 ? 'blackout' : r < 0.42 ? 'dense' : 'open';
+  return r < 0.07 ? 'pillars' : r < 0.12 ? 'blackout' : r < 0.155 ? 'holes' : r < 0.185 ? 'red' : r < 0.43 ? 'dense' : 'open';   // wiki variations: Pillars, Blackout Zones, Holes, Red Rooms
 }
 function level0Boxes(i, j) {
+  const mb = manilaBoxes(i, j); if (mb) return mb;                             // the Manila Room (far off the map)
   const b = [], near = spawnOpen(i, j), zone = zoneOf(i, j);
   const x0 = i * CELL, z0 = j * CELL, x1 = x0 + CELL, z1 = z0 + CELL, T = 0.08;   // partitions ~16 cm thick (photo)
-  if (near) return b;
+  if (near || zone === 'holes') return b;
   if (zone === 'pillars') {                                                        // "huge rooms with columns in a lattice"
     if ((i + j) % 2 === 0 && hash(i, j, 3) < 0.8) b.push([x1 - .5, x1 + .5, 0, WALL_H, z1 - .5, z1 + .5]);
     return b;
@@ -1047,7 +1049,7 @@ function islandH(isl, x, z) {
   return y;
 }
 function groundY7(x, z) {
-  const S = CELL * CHUNK, cx = Math.floor(x / S), cz = Math.floor(z / S); let y = -99;
+  const S = CELL * CHUNK, cx = Math.floor(x / S), cz = Math.floor(z / S); let y = SEA_Y - 300;   // the (scaled) seafloor, far below
   for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { const isl = island7(cx + a, cz + b); if (isl) y = Math.max(y, islandH(isl, x, z)); }
   return y;
 }
@@ -1383,20 +1385,27 @@ function buildChunk(cx, cz, st = 0) {
   } else if (currentLevel === 'level7') {                           // open ocean: a rare island of unknown rock (Fort Surrender on the nearest)
     const isl = island7(cx, cz); if (isl) { group.add(makeIsland(isl)); if (isl.fort) group.add(makeFort(isl)); }
   } else {
-    const P = [], N = [], U = [], P2 = [], N2 = [], U2 = [], L0 = currentLevel === 'level0', B = L0 ? batch94() : null, D = L0 ? dk4() : null, FQ = { P: [], N: [], U: [] };
+    const P = [], N = [], U = [], P2 = [], N2 = [], U2 = [], P3 = [], N3 = [], U3 = [], P4 = [], N4 = [], U4 = [], L0 = currentLevel === 'level0', B = L0 ? batch94() : null, D = L0 ? dk4() : null, FQ = { P: [], N: [], U: [] };
     for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) {
       for (const box of cellBoxes(i, j)) {
-        if (box[6]) continue;                                     // collision-only (Level 2 pipe banks, junk piles)
+        if (box[6] === 'c') continue;                             // collision-only (Level 2 pipe banks, junk piles)
         const dots = L0 && hash(Math.floor(box[0] * 2), Math.floor(box[4] * 2), 31) < 0.35;   // two papers, as in the photo
-        if (dots) addBox(P2, N2, U2, box); else addBox(P, N, U, box);
+        const red = L0 && zoneOf(Math.floor((box[0] + box[1]) / 2 / CELL), Math.floor((box[4] + box[5]) / 2 / CELL)) === 'red';
+        if (box[6] === 'm') addBox(P4, N4, U4, box); else if (red) addBox(P3, N3, U3, box); else if (dots) addBox(P2, N2, U2, box); else addBox(P, N, U, box);
+        if (L0) l0Special(B, D, FQ, box);
         if (L0) { l0Trim(B, D, box); if (flick0(box)) for (const sd of [-1, 1]) { const alongX = box[1] - box[0] > box[5] - box[4], th = (alongX ? box[5] - box[4] : box[1] - box[0]) / 2 + 0.01;   // a flickering wall (wiki: the way to Level 1)
           vq4(FQ, alongX ? [(box[0] + box[1]) / 2, 1.5, (box[4] + box[5]) / 2 + sd * th] : [(box[0] + box[1]) / 2 + sd * th, 1.5, (box[4] + box[5]) / 2], alongX ? (sd > 0 ? 0 : Math.PI) : (sd > 0 ? Math.PI / 2 : -Math.PI / 2), Math.min(2.4, alongX ? box[1] - box[0] : box[5] - box[4]), 2.9); } }
       }
+      if (L0 && hole0(i, j)) { dflat4(D, i * CELL + 2.5, 0.006, j * CELL + 2.5, 2.0, 2.0, 0, HOLE4, [0, 0, 0, 1]); dflat4(D, i * CELL + 2.5, 0.005, j * CELL + 2.5, 2.7, 2.7, 0, BLOB4, [0, 0, 0, 0.6]); }   // a Hole
+      if (L0 && zoneOf(i, j) === 'red' && hash(i, j, 44) < 0.6) dflat4(D, i * CELL + 2.5, 0.004, j * CELL + 2.5, 3 + hash(i, j, 45) * 2, 3, hash(i, j, 46) * 6, BLOB4, [0.28, 0.02, 0.02, 0.55]);   // thick, sticky red carpet
       if (L0 && hash(i, j, 33) < 0.14) { const sz = 0.8 + hash(i, j, 34) * 1.8; dflat4(D, i * CELL + 1 + hash(i, j, 35) * 3, 0.004, j * CELL + 1 + hash(i, j, 36) * 3, sz, sz * (0.6 + 0.6 * hash(i, j, 37)), hash(i, j, 38) * 6.28, STAIN4, [0.16, 0.12, 0.05, 0.42]); }   // damp patches in the "always wet" carpet
     }
     if (P.length) { const wm = geoMesh(P, N, U, wallMat); group.add(wm);
-      if (LV.wallTint) { const C = [], col = new THREE.Color(); for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) for (const box of cellBoxes(i, j)) { if (box[6]) continue; col.copy(LV.wallTint(box)); for (let k = 0; k < 36; k++) C.push(col.r, col.g, col.b); } wm.geometry.setAttribute('color', new THREE.Float32BufferAttribute(C, 3)); } }
+      if (LV.wallTint) { const C = [], col = new THREE.Color(); for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) for (const box of cellBoxes(i, j)) { if (box[6] === 'c') continue; col.copy(LV.wallTint(box)); for (let k = 0; k < 36; k++) C.push(col.r, col.g, col.b); } wm.geometry.setAttribute('color', new THREE.Float32BufferAttribute(C, 3)); } }
     if (P2.length) group.add(geoMesh(P2, N2, U2, wallDotMat));
+    if (P3.length) group.add(geoMesh(P3, N3, U3, redWallMat));
+    if (P4.length) group.add(geoMesh(P4, N4, U4, manilaMat));
+    if (L0) buildManila(group, i0, j0, i1, j1);
     if (LV.build) LV.build(group, i0, j0, i1, j1);
     if (L0) { B.emit(group); if (D.P.length) group.add(decalMesh4(D)); if (FQ.P.length) group.add(geoMesh(FQ.P, FQ.N, FQ.U, flickMat0)); }
     if (currentLevel === 'level2') build2(group, i0, j0, i1, j1);
@@ -3133,6 +3142,132 @@ LEVELS.level6 = {
   real() { photo(wallMat, 'Concrete031', 1, 1, { color: '#6a6c6e', rough: 0.5 }); photo(floorMat, 'Concrete031', 96, 96, { color: '#5a5c5e' }); photo(ceilMat, 'Concrete031', 96, 96, { color: '#55575a' }); },
 };
 
+// ===================== more of the wiki: Level 0 sub-areas, Smilers, Level 7's depths =====================
+// ---- Level 0: Holes (pitch-black pits in grid clusters — falling in is fatal), Red Rooms (wallpaper peeled back to crimson), the Manila Room ----
+const hole0 = (i, j) => zoneOf(i, j) === 'holes' && ((i + j) % 2 === 0) && hash(i, j, 42) < 0.7 && !spawnOpen(i, j);
+const redWallTex = canvasTex(1024, 1228, (g, w, h) => {        // the yellow paper torn away in sheets, crimson underneath
+  g.drawImage(wallTex.image, 0, 0, w, h);
+  for (let q = 0; q < 22; q++) { const x = Math.random() * w, y = Math.random() * h, rx = 60 + Math.random() * 220, ry = 80 + Math.random() * 260;
+    g.fillStyle = '#7a0f12'; g.beginPath(); for (let k = 0; k <= 16; k++) { const a = k / 16 * 6.283, r = 0.7 + Math.random() * 0.45; g[k ? 'lineTo' : 'moveTo'](x + Math.cos(a) * rx * r, y + Math.sin(a) * ry * r); } g.fill();
+    g.strokeStyle = 'rgba(240,230,190,0.7)'; g.lineWidth = 3; g.stroke(); }
+  speckle(g, w, h, 8000, 0.08, false);
+});
+const redWallMat = new LMat({ map: redWallTex });
+const MAN = { x: -4000, z: -4000, s: 8 };                          // the Manila Room lives far off the map (8 x 8 m)
+const manilaTex = canvasTex(512, 614, (g, w, h) => { g.fillStyle = '#e7cf94'; g.fillRect(0, 0, w, h); speckle(g, w, h, 9000, 0.04, false); g.fillStyle = 'rgba(150,110,50,0.25)'; for (let x = 0; x < w; x += 24) g.fillRect(x, 0, 2, h); });
+const manilaMat = new LMat({ map: manilaTex });
+const manilaDoor0 = bx => bx[2] < 0.01 && bx[3] >= WALL_H && Math.max(bx[1] - bx[0], bx[5] - bx[4]) >= 3 && hash(Math.floor(bx[0] * 2), Math.floor(bx[4] * 2), 43) < 0.012 && !flick0(bx);   // "a brown wall with a wood door"
+function manilaBoxes(i, j) {
+  const x0 = MAN.x - MAN.s / 2, x1 = MAN.x + MAN.s / 2, z0 = MAN.z - MAN.s / 2, z1 = MAN.z + MAN.s / 2, T = 0.4, b = [];
+  if (i * CELL > x1 + 1 || (i + 1) * CELL < x0 - 1 || j * CELL > z1 + 1 || (j + 1) * CELL < z0 - 1) return null;
+  const clip = q => [Math.max(q[0], i * CELL), Math.min(q[1], (i + 1) * CELL), q[2], q[3], Math.max(q[4], j * CELL), Math.min(q[5], (j + 1) * CELL), 'm'];
+  for (const q of [[x0 - T, x1 + T, 0, WALL_H, z0 - T, z0], [x0 - T, x1 + T, 0, WALL_H, z1, z1 + T], [x0 - T, x0, 0, WALL_H, z0, z1], [x1, x1 + T, 0, WALL_H, z0, z1]]) { const c = clip(q); if (c[1] > c[0] && c[5] > c[4]) b.push(c); }
+  return b;
+}
+function buildManila(group, i0, j0, i1, j1) {
+  if (MAN.x < i0 * CELL || MAN.x >= i1 * CELL || MAN.z < j0 * CELL || MAN.z >= j1 * CELL) return;
+  const B = batch94(), x = MAN.x, z = MAN.z, H = MAN.s / 2;
+  B.add(G94.box, '#7a5232', B.mat(x, 0.005, z, 0, 0, 0, MAN.s, 0.01, MAN.s));                          // wooden floor
+  for (let k = 0; k < 16; k++) B.add(G94.box, '#5e3e24', B.mat(x - H + k * 0.5, 0.012, z, 0, 0, 0, 0.012, 0.004, MAN.s));
+  B.add(G94.cyl8, '#6a4428', B.mat(x, 0.74, z, 0, Math.PI / 8, 0, 0.75, 0.05, 0.75)); B.add(G94.cyl8, '#4e321c', B.mat(x, 0.36, z, 0, 0, 0, 0.1, 0.72, 0.1));   // octagonal table
+  for (const s of [-1, 1]) { const c = B.mat(x + s * 1.05, 0, z, 0, s > 0 ? -Math.PI / 2 : Math.PI / 2, 0); B.add(G94.box, '#6a4428', B.mat(0, 0.45, 0, 0, 0, 0, 0.45, 0.05, 0.45, c)); B.add(G94.box, '#6a4428', B.mat(0, 0.75, -0.2, 0, 0, 0, 0.45, 0.6, 0.05, c)); for (const lx of [-0.19, 0.19]) for (const lz of [-0.19, 0.19]) B.add(G94.box, '#4e321c', B.mat(lx, 0.22, lz, 0, 0, 0, 0.04, 0.44, 0.04, c)); }   // two chairs
+  for (const [dx, dz, ry] of [[0, -H, 0], [0, H, Math.PI], [-H, 0, Math.PI / 2], [H, 0, -Math.PI / 2]]) { B.add(G94.box, '#5a3a20', B.mat(x + dx * 0.995, 1.05, z + dz * 0.995, 0, ry, 0, 0.95, 2.1, 0.06)); B.lamp(G94.box, B.mat(x + dx * 0.985, 1.0, z + dz * 0.985, 0, ry, 0, 0.06, 0.06, 0.06).multiply(_bm.makeTranslation(6, 0, 0))); }   // a wooden door in each wall
+  B.emit(group);
+}
+function l0Special(B, D, F, box, P3, N3, U3) {   // brown door walls + Red Room walls (called from the Level 0 chunk loop)
+  if (manilaDoor0(box)) { const alongX = box[1] - box[0] > box[5] - box[4], th = (alongX ? box[5] - box[4] : box[1] - box[0]) / 2, c = [(box[0] + box[1]) / 2, 0, (box[4] + box[5]) / 2];
+    for (const sd of [-1, 1]) { const pos = alongX ? [c[0], 1.05, c[2] + sd * (th + 0.02)] : [c[0] + sd * (th + 0.02), 1.05, c[2]], ry = alongX ? 0 : Math.PI / 2;
+      B.add(G94.box, '#6b4a2e', B.mat(pos[0], 1.5, pos[2], 0, ry, 0, alongX ? 2.6 : 2.6, 3.0, 0.02)); B.add(G94.box, '#4a2e18', B.mat(pos[0], 1.05, pos[2], 0, ry, 0, 0.95, 2.1, 0.05)); } }
+}
+let manila0 = null;   // where you came in from
+function hookManila(dt, time) {
+  const inM = Math.abs(player.pos.x - MAN.x) < MAN.s && Math.abs(player.pos.z - MAN.z) < MAN.s;
+  if (!inM) {
+    const ci = Math.floor(player.pos.x / CELL), cj = Math.floor(player.pos.z / CELL);
+    for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) for (const b of cellBoxes(i, j)) if (manilaDoor0(b)) {
+      const qx = Math.max(b[0], Math.min(player.pos.x, b[1])), qz = Math.max(b[4], Math.min(player.pos.z, b[5]));
+      if (Math.hypot(player.pos.x - qx, player.pos.z - qz) < 0.4) { manila0 = player.pos.clone(); fadeA = 1; player.pos.set(MAN.x, 0, MAN.z + 1.5); toast('THE MANILA ROOM'); piano0(); return; } }
+    for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) if (hole0(i, j) && Math.abs(player.pos.x - (i * CELL + 2.5)) < 1.0 && Math.abs(player.pos.z - (j * CELL + 2.5)) < 1.0) {   // fell into a Hole
+      fadeA = 1; glitchPulse = 1.5; blackout = { t: 0 }; player.pos.set(2.5, 0, 2.5); toast('You fell into the dark. You wake up again.'); return; }
+    return;
+  }
+  piano0T -= dt; if (piano0T <= 0) piano0();
+  const H = MAN.s / 2 - 0.45;                                        // walking into one of the four doors: one leads on to Level 1 (wiki: "an exit to Level 1" nearby), the others back into Level 0
+  const at = [[0, -H], [0, H], [-H, 0], [H, 0]].findIndex(([dx, dz]) => Math.hypot(player.pos.x - (MAN.x + dx), player.pos.z - (MAN.z + dz)) < 0.5);
+  if (at >= 0) { fadeA = 1; if (at === 0) { setLevel('level1'); toast('THROUGH THE MANILA DOOR → ' + LV.name); } else { const a = Math.random() * 6.28; player.pos.set(Math.cos(a) * 400, 0, Math.sin(a) * 400); toast('back into Level 0…'); } }
+}
+let piano0T = 0;
+function piano0() {               // inside, the hum fades and a piano plays (wiki)
+  piano0T = 9; if (!amb) return; const ctx = amb.ctx, out = ctx.createGain(), t0 = ctx.currentTime + 0.1; out.gain.value = 0.06; out.connect(ctx.destination);
+  [[60, 64, 67], [57, 60, 64], [53, 57, 60], [55, 59, 62]].forEach((ch, b) => { ch.forEach((n, k) => note94(ctx, out, 'triangle', n + 12, t0 + b * 2.2 + k * 0.18, 2.4, 0.5)); note94(ctx, out, 'sine', ch[0] - 12, t0 + b * 2.2, 2.2, 0.6); });
+}
+
+// ---- Smilers (wiki: Levels 1, 2, 3 and 94 at night) — a pair of eyes and a grin in the dark that vanishes in light ----
+const smilerTex = canvasTex(256, 256, (g) => {
+  for (const s of [-1, 1]) { const rg = g.createRadialGradient(128 + s * 44, 96, 0, 128 + s * 44, 96, 26); rg.addColorStop(0, 'rgba(255,255,250,1)'); rg.addColorStop(0.5, 'rgba(240,240,230,0.9)'); rg.addColorStop(1, 'rgba(200,200,190,0)'); g.fillStyle = rg; g.beginPath(); g.ellipse(128 + s * 44, 96, 26, 15, s * 0.15, 0, 7); g.fill(); }
+  g.fillStyle = 'rgba(250,250,240,0.95)'; g.beginPath(); g.moveTo(38, 150); g.quadraticCurveTo(128, 238, 218, 150); g.quadraticCurveTo(128, 196, 38, 150); g.fill();
+  g.strokeStyle = 'rgba(20,20,20,0.85)'; g.lineWidth = 3; for (let k = 0; k < 15; k++) { const x = 52 + k * 11; g.beginPath(); g.moveTo(x, 150 + Math.sin((x - 38) / 180 * Math.PI) * 30); g.lineTo(x, 150 + Math.sin((x - 38) / 180 * Math.PI) * 52); g.stroke(); }
+}, false);
+const smiler = new THREE.Sprite(new THREE.SpriteMaterial({ map: smilerTex, transparent: true, depthWrite: false, fog: false, toneMapped: false })); smiler.scale.set(1.1, 1.1, 1); smiler.visible = false; scene.add(smiler);
+const SM = { t: 0, look: 0 };
+function smilerDark() {           // is it dark enough where you are for a Smiler?
+  const ci = Math.floor(player.pos.x / CELL), cj = Math.floor(player.pos.z / CELL);
+  if (currentLevel === 'level1') return !!blackout;
+  if (currentLevel === 'level2') return circ2(ci, cj) < 0.24;
+  if (currentLevel === 'level3') { for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) if (fix3(i, j)) return false; return true; }
+  if (currentLevel === 'level94') return dayF94() < 0.3;
+  return false;
+}
+function updateSmiler(dt) {
+  const dark = smilerDark();
+  if (!smiler.visible) { if (dark && Math.random() < dt * 0.06) {
+      const a = player.yaw + (Math.random() - 0.5) * 1.2, d = 8 + Math.random() * 5, x = player.pos.x - Math.sin(a) * d, z = player.pos.z - Math.cos(a) * d;
+      if (freeDistance(new THREE.Vector3(player.pos.x, 1.4, player.pos.z), new THREE.Vector3(-Math.sin(a), 0, -Math.cos(a)), d) >= d - 0.5) { smiler.position.set(x, (LV.terrain ? l7.F : 0) + 1.55, z); smiler.visible = true; smiler.material.opacity = 0; SM.look = 0; } }
+    return; }
+  const dx = smiler.position.x - player.pos.x, dz = smiler.position.z - player.pos.z, dist = Math.hypot(dx, dz), look = Math.abs(Math.atan2(Math.sin(Math.atan2(-dx, -dz) - player.yaw), Math.cos(Math.atan2(-dx, -dz) - player.yaw)));
+  smiler.material.opacity = Math.min(1, smiler.material.opacity + dt * 0.8);
+  if (look < 0.25) SM.look += dt; else { smiler.position.x -= dx / dist * dt * 0.7; smiler.position.z -= dz / dist * dt * 0.7; }   // it only creeps closer while you're not looking straight at it
+  if (!dark || SM.look > 4) { smiler.material.opacity -= dt * 2; if (smiler.material.opacity <= 0) smiler.visible = false; return; }
+  if (dist < 1.4) { smiler.visible = false; glitchPulse = 1.4; fadeA = 0.8; toast('a Smiler'); const a = Math.random() * 6.28; player.pos.x += Math.cos(a) * 6; player.pos.z += Math.sin(a) * 6; }
+}
+
+// ---- Level 7: diving (Z down, Space up) through the depth zones — Twilight ~1 km, Midnight ~4 km, the Abyss below 7 km (wiki), scaled 1 m : 25 m ----
+const Z7 = { twi: 40, mid: 160, aby: 280, floor: 300 };
+let deep7 = null, deep7Key = '', zone7 = '';
+const tarMat7 = REAL ? new THREE.MeshStandardMaterial({ color: '#0c0b09', roughness: 0.15, metalness: 0.2 }) : new THREE.MeshLambertMaterial({ color: '#0c0b09' });
+function updateDeep7(px, pz, depth) {
+  const S = 30, cx = Math.floor(px / S), cz = Math.floor(pz / S), key = cx + ',' + cz + (depth > Z7.twi - 10 ? 'd' : '');
+  if (key === deep7Key) return; deep7Key = key;
+  if (deep7) { scene.remove(deep7); deep7.traverse(o => o.geometry && o.geometry.dispose()); deep7 = null; }
+  if (depth < Z7.twi - 10) return;
+  const g = new THREE.Group(), B = batch94();
+  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+    const gx = (cx + a) * S, gz = (cz + b) * S, h = k => hash(cx + a, cz + b, k);
+    for (let q = 0; q < 6; q++) {                                        // Twilight Zone: "loose bones and scraps of rusted metal", humanoid skeletons with flipper feet
+      const x = gx + h(700 + q) * S, z = gz + h(710 + q) * S, y = SEA_Y - Z7.twi - 5 - h(720 + q) * 50, M = B.mat(x, y, z, h(730 + q) * 3, h(740 + q) * 6, h(750 + q) * 3);
+      const r = h(760 + q);
+      if (r < 0.35) { B.add(G94.cyl8, '#d9d2bc', B.mat(0, 0, 0, 0, 0, Math.PI / 2, 0.03, 0.5, 0.03, M)); for (const s of [-1, 1]) B.add(G94.sph, '#d9d2bc', B.mat(s * 0.27, 0, 0, 0, 0, 0, 0.05, 0.05, 0.05, M)); }   // a bone
+      else if (r < 0.6) B.add(G94.box, '#6e3b1e', B.mat(0, 0, 0, 0, 0, 0, 0.5 + h(770 + q), 0.02, 0.3 + h(780 + q) * 0.6, M));   // rusted scrap
+      else if (r < 0.8) { B.add(G94.sph, '#d9d2bc', B.mat(0, 0, 0, 0, 0, 0, 0.12, 0.14, 0.13, M)); B.add(G94.box, '#151310', B.mat(0.05, 0.02, 0.1, 0, 0, 0, 0.04, 0.04, 0.03, M)); B.add(G94.box, '#151310', B.mat(-0.05, 0.02, 0.1, 0, 0, 0, 0.04, 0.04, 0.03, M)); }   // a skull
+      else { B.add(G94.cyl8, '#d9d2bc', B.mat(0, 0, 0, 0, 0, 0, 0.05, 0.6, 0.05, M)); for (let k = 0; k < 5; k++) B.add(G94.box, '#d9d2bc', B.mat(0, 0.2 - k * 0.09, 0, 0, 0, 0, 0.3, 0.02, 0.14, M)); B.add(G94.sph, '#d9d2bc', B.mat(0, 0.42, 0, 0, 0, 0, 0.11, 0.13, 0.12, M));
+        for (const s of [-1, 1]) { B.add(G94.cyl8, '#d9d2bc', B.mat(s * 0.1, -0.6, 0, 0, 0, 0, 0.03, 0.6, 0.03, M)); B.add(G94.box, '#d9d2bc', B.mat(s * 0.1, -0.95, 0.12, 0, 0, 0, 0.16, 0.02, 0.36, M)); } }   // a skeleton with flipper feet
+    }
+    if (depth > Z7.mid) for (let q = 0; q < 3; q++) { const x = gx + h(800 + q) * S, z = gz + h(810 + q) * S, r = 3 + h(820 + q) * 9, hh = 4 + h(830 + q) * 14;   // the Abyss: "mountainous piles of tar and rock"
+      const m = new THREE.Mesh(new THREE.ConeGeometry(r, hh, 9), h(840 + q) < 0.5 ? tarMat7 : rockMat); m.position.set(x, SEA_Y - Z7.floor + hh / 2, z); g.add(m); }
+  }
+  const fl = new THREE.Mesh(new THREE.PlaneGeometry(S * 3, S * 3).rotateX(-Math.PI / 2), roomCarpetMat); fl.position.set(cx * S + S / 2, SEA_Y - Z7.floor, cz * S + S / 2); g.add(fl);   // the seafloor seems "carpeted"
+  B.emit(g); deep7 = g; scene.add(g);
+}
+function hook7(dt, time) {
+  if (l7.phase !== 'sea') { if (deep7) { scene.remove(deep7); deep7 = null; deep7Key = ''; } return; }
+  const depth = SEA_Y - l7.F; updateDeep7(player.pos.x, player.pos.z, depth);
+  const z = depth > Z7.aby ? 'THE ABYSS' : depth > Z7.mid ? 'THE MIDNIGHT ZONE' : depth > Z7.twi ? 'THE TWILIGHT ZONE' : depth > 4 ? 'THE DAYLIGHT ZONE' : '';
+  if (z !== zone7) { if (z && depth > 4) toast(z); zone7 = z; }
+  if (depth > Z7.aby && amb && performance.now() > soundT) { soundT = performance.now() + 400 + Math.random() * 900; const o = pannedOut(amb.ctx, 0.05); sfxNoise(amb.ctx, o, amb.ctx.currentTime + 0.02, 0.12, 'bandpass', 300 + Math.random() * 400, 4, 0.8); }   // "a steady bubbling"
+}
+const deepDark7 = d => d < Z7.twi ? 1 - 0.55 * d / Z7.twi : d < Z7.mid ? 0.45 * (1 - (d - Z7.twi) / (Z7.mid - Z7.twi)) : 0;
+
+LEVELS.level7.hook = hook7;
 // ---------- photographic materials for everything else ----------
 if (REAL) {
   for (const m of [poolTileMat, poolDeckMat, poolDeepMat, poolBasinMat, poolCeilMat]) photo(m, 'Tiles107', 4, 4, { rough: 0.85 });
@@ -3206,8 +3341,11 @@ function waterPhysics(dt, time, xr, ground, wl) {
   } else {                                             // deep water: fall, plunge under, float back up
     l7.swim = true;
     const was = l7.F;
-    if (l7.F > swimF + 0.05) l7.vy -= 9.8 * dt;
-    else l7.vy += (16 * (swimF - l7.F) - 5.5 * l7.vy) * dt;
+    const dv = wl === SEA_Y ? (keys.has('KeyZ') ? -1 : keys.has('Space') && l7.F < swimF - 0.2 ? 1 : 0) : 0;   // Level 7: Z dives, Space swims up
+    if (dv) { l7.vy += (dv * 2.6 - l7.vy) * Math.min(1, dt * 3); l7.diving = true; }
+    else if (l7.diving && l7.F < swimF - 0.4) l7.vy += (0.8 - l7.vy) * Math.min(1, dt * 1.5);          // let go and you drift slowly back up
+    else if (l7.F > swimF + 0.05) { l7.vy -= 9.8 * dt; l7.diving = false; }
+    else { l7.vy += (16 * (swimF - l7.F) - 5.5 * l7.vy) * dt; l7.diving = false; }
     l7.F += l7.vy * dt;
     if (l7.F < g) { l7.F = g; l7.vy = 0; }
     if (was > swimF && l7.F <= swimF && l7.vy < -3) splash7();
@@ -3401,14 +3539,17 @@ function frame(now) {
   scene.fog.color.copy(LV.fog).multiplyScalar(0.08 + 0.92 * globalLight);
   if (LV.ocean || LV.flood) {                      // under the surface: Level 7 murky near-black, Poolrooms clear blue-green
     camera.getWorldPosition(_cw); l7.under = (l7.phase === 'sea' || LV.flood) && _cw.y < (LV.flood ? (l7.wl ?? POOL_WATER) : SEA_Y) - 0.03;
-    if (l7.under) scene.fog.color.set(LV.flood ? '#3f8d80' : '#061519').multiplyScalar(0.3 + 0.7 * globalLight);
-    scene.fog.near = l7.under ? 0.1 : LV.fogNear; scene.fog.far = l7.under ? (LV.flood ? 14 : 9) : LV.fogFar;
+    const dk = LV.ocean ? deepDark7(SEA_Y - _cw.y) : 1;                    // the deeper you dive, the darker: completely dark by the Midnight Zone
+    if (l7.under) scene.fog.color.set(LV.flood ? '#3f8d80' : '#061519').multiplyScalar((0.3 + 0.7 * globalLight) * dk);
+    scene.fog.near = l7.under ? 0.1 : LV.fogNear; scene.fog.far = l7.under ? (LV.flood ? 14 : 4 + 8 * dk) : LV.fogFar;
+    if (LV.ocean && l7.under) { hemi.intensity *= Math.max(0.03, dk); ambient.intensity *= Math.max(0.03, dk); }
   }
   scene.background = scene.fog.color;
   updateAmbience(!!LV.ocean, l7.phase === 'room', l7.under, globalLight, !!LV.flood);
   if (LV.terrain) frame94(dt, time, xr, wx, wz);
   if (LV.office) frame4(dt, xr, globalLight);
   if (LV.hook) LV.hook(dt, time, globalLight);
+  updateSmiler(dt);
   if (waves6 && currentLevel !== 'level6') waves6.g.gain.value = 0;
   if (currentLevel === 'level7' && l7.phase === 'room' && player.pos.x > R7.SX0 + 0.1 && player.pos.x < R7.SX1 - 0.1 && player.pos.z > R7.D / 2 - 0.42) { fadeA = 1; setLevel('level6'); toast('UP THE STAIRS, INTO THE DARK → ' + LV.name); }   // wiki: the room's staircase leads to Level 6
   updateHvac4(!!LV.office || currentLevel === 'level2');

@@ -238,6 +238,15 @@ The research notes, with source URLs and hex colours read off the images, were c
   - Silence with hallucinated scuttling, breathing and whispers.
   - A 3D (HRTF) wave sound leads you to the stairwell at `S6`, which goes to Level 7.
 
+**More canon features:**
+- **Level 0** has Holes zones (black pits; falling in restarts you), Red Rooms (crimson-torn wallpaper, sticky red carpet), and the Manila Room at (−4000, −4000).
+  - You reach the Manila Room through rare brown walls with a wooden door (`manilaDoor0`). Inside: piano music; the −z door leads to Level 1, the other three back into Level 0.
+- **Smilers** (`updateSmiler`) appear only where it's dark:
+  - Level 1 during a Flickering, Level 2 in dead circuits, Level 3 away from lights, Level 94 at night.
+  - They creep closer while you're not looking straight at them, and vanish if you stare or the light returns.
+- **Level 7 diving:** Z dives and Space swims up.
+  - Depth zones scaled 1 m : 25 m (`Z7`): Twilight at 40 m (bones, scrap, flipper-footed skeletons), Midnight at 160 m (black), the Abyss at 280 m (tar/rock mounds, bubbling), and a carpeted seafloor at 300 m.
+
 **Exits (all canon):**
 - 0 → 1 through flickering walls (`flick0`, `hook0`).
 - 1 → 2 by walking far.
